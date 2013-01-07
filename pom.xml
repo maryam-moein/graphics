@@ -7,8 +7,17 @@
     <version>3.0.0</version>
     <packaging>jar</packaging>
 
-    <name>NodeBox</name>
+    <name>NodeBox Graphics</name>
     <url>http://nodebox.net</url>
+    <description>The graphical engine powering NodeBox.</description>
+
+    <licenses>
+        <license>
+            <name>GNU General Public License, Version 2</name>
+            <url>http://www.gnu.org/licenses/gpl-2.0.html</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
 
     <dependencies>
 
@@ -46,4 +55,7 @@
         </plugins>
     </build>
 
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    </properties>
 </project>
