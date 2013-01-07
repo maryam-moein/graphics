@@ -19,6 +19,19 @@
         </license>
     </licenses>
 
+    <scm>
+        <url>https://github.com/nodebox/graphics</url>
+        <connection>https://github.com/nodebox/graphics.git</connection>
+    </scm>
+
+    <developers>
+        <developer>
+            <id>frederikdb</id>
+            <name>Frederik De Bleser</name>
+            <email>frederik@burocrazy.com</email>
+        </developer>
+    </developers>
+
     <dependencies>
 
         <dependency>
