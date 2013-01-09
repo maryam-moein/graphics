@@ -65,7 +65,7 @@ public class Playground extends JFrame {
 
     private void doRun() {
         String source = codeArea.getText();
-        Object o = clojure.lang.Compiler.load(new StringReader("(import '[geocore Path Group])\n" + source));
+        Object o = clojure.lang.Compiler.load(new StringReader("(import '[nodebox.graphics Canvas Color Geometry Group Image Path PathElement Point Rect Size Text Transform])\n" + source));
         viewer.setResult(o);
     }
 
