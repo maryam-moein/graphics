@@ -1,5 +1,7 @@
 package nodebox.graphics;
 
+import com.google.common.base.Objects;
+
 import javax.imageio.ImageIO;
 import javax.management.RuntimeErrorException;
 import java.awt.*;
@@ -7,62 +9,43 @@ import java.awt.geom.AffineTransform;
 import java.awt.image.BufferedImage;
 import java.io.*;
 
-import static nodebox.graphics.MathUtils.clamp;
+import static nodebox.graphics.Geometry.clamp;
 
-public class Image extends AbstractGrob {
+public class Image implements GraphicsElement {
 
-    private double x, y;
-    private double desiredWidth, desiredHeight;
-    private double alpha = 1;
+    public static final Image BLANK = new Image(new BufferedImage(1, 1, BufferedImage.TYPE_BYTE_GRAY), Point.ZERO, 1, 1, 1, Transform.IDENTITY);
+    private final BufferedImage image;
+    private final Point position;
+    private final double desiredWidth, desiredHeight;
+    private final double alpha;
+    private final Transform transform;
 
-    private BufferedImage image;
-    private static BufferedImage blankImage = new BufferedImage(1, 1, BufferedImage.TYPE_BYTE_GRAY);
-    public static final String BLANK_IMAGE = "__blank";
-
-    public Image() {
-        this(new File(BLANK_IMAGE));
+    private Image(BufferedImage image, Point position, double desiredWidth, double desiredHeight, double alpha, Transform transform) {
+        this.image = image;
+        this.position = position;
+        this.desiredWidth = desiredWidth;
+        this.desiredHeight = desiredHeight;
+        this.alpha = alpha;
+        this.transform = transform;
     }
 
-    public Image(File file) {
-        if (file == null || file.getPath().equals(BLANK_IMAGE)) {
-            image = blankImage;
-        } else {
-            try {
-                image = ImageIO.read(file);
-            } catch (IOException e) {
-                throw new RuntimeErrorException(null, "Could not read image " + file);
-            }
+    public static Image fromFile(File file) {
+        try {
+            BufferedImage image = ImageIO.read(file);
+            return new Image(image, Point.ZERO, 0, 0, 1, Transform.IDENTITY);
+        } catch (IOException e) {
+            throw new RuntimeException("Could not read image file " + file, e);
         }
     }
 
-    public Image(String fname) {
-        this(new File(fname));
-    }
-
-    public Image(String fname, double cx, double cy) {
-        this(new File(fname));
-        this.x = cx;
-        this.y = cy;
-    }
-
-    public Image(BufferedImage image) {
-        this.image = image;
-    }
-
-    public Image(Image other) {
-        super(other);
-        this.x = other.x;
-        this.y = other.y;
-        this.desiredWidth = other.desiredWidth;
-        this.desiredHeight = other.desiredHeight;
-        this.alpha = other.alpha;
-        this.image = other.image;
+    public static Image fromFile(String fileName) {
+        return fromFile(new File(fileName));
     }
 
     public static Image fromData(byte[] data) {
-        InputStream istream = new BufferedInputStream(new ByteArrayInputStream(data));
+        InputStream in = new BufferedInputStream(new ByteArrayInputStream(data));
         try {
-            return new Image(ImageIO.read(istream));
+            return new Image(ImageIO.read(in), Point.ZERO, 0, 0, 1, Transform.IDENTITY);
         } catch (IOException e) {
             throw new RuntimeErrorException(null, "Could not read image data.");
         }
@@ -84,61 +67,64 @@ public class Image extends AbstractGrob {
         return getOriginalWidth() * getScaleFactor();
     }
 
-    public void setWidth(double width) {
-        this.desiredWidth = width;
-    }
-
     public double getHeight() {
         return getOriginalHeight() * getScaleFactor();
     }
 
-    public void setHeight(double height) {
-        this.desiredHeight = height;
+    public Point getPosition() {
+        return position;
     }
 
     public double getX() {
-        return x;
-    }
-
-    public void setX(double x) {
-        this.x = x;
+        return position.x;
     }
 
     public double getY() {
-        return y;
-    }
-
-    public void setY(double y) {
-        this.y = y;
+        return position.y;
     }
 
     public double getAlpha() {
         return alpha;
     }
 
-    public void setAlpha(double alpha) {
-        this.alpha = alpha;
+    public Size getOriginalSize() {
+        return new Size(getOriginalWidth(), getOriginalHeight());
     }
 
-    public BufferedImage getAwtImage() {
-        return image;
+    //// "Mutation" methods ////
+
+    public Image position(Point position) {
+        return new Image(image, position, desiredWidth, desiredHeight, alpha, transform);
     }
 
-    public Size getSize() {
-        return new Size(image.getWidth(), image.getHeight());
+    public Image x(double x) {
+        Point pt = new Point(x, position.y);
+        return position(pt);
     }
 
-    //// Transformations ////
+    public Image y(double y) {
+        Point pt = new Point(position.x, y);
+        return position(pt);
+    }
 
-    protected void setupTransform(Graphics2D g) {
-        saveTransform(g);
-        AffineTransform trans = g.getTransform();
-        trans.concatenate(getTransform().getAffineTransform());
-        g.setTransform(trans);
+    public Image desiredWidth(double desiredWidth) {
+        return new Image(image, position, desiredWidth, desiredHeight, alpha, transform);
+    }
+
+    public Image desiredHeight(double desiredHeight) {
+        return new Image(image, position, desiredWidth, desiredHeight, alpha, transform);
+    }
+
+    public Image alpha(double alpha) {
+        return new Image(image, position, desiredWidth, desiredHeight, alpha, transform);
+    }
+
+    @Override
+    public GraphicsElement transform(Transform t) {
+        return new Image(image, position, desiredWidth, desiredHeight, alpha, transform.concatenate(t));
     }
 
     //// Grob support ////
-
 
     public boolean isEmpty() {
         return image == null || image.getWidth() == 0 || image.getHeight() == 0;
@@ -149,7 +135,7 @@ public class Image extends AbstractGrob {
         double factor = getScaleFactor();
         double finalWidth = image.getWidth() * factor;
         double finalHeight = image.getHeight() * factor;
-        return new Rect(x - finalWidth / 2, y - finalHeight / 2, finalWidth, finalHeight);
+        return new Rect(getX() - finalWidth / 2, getY() - finalHeight / 2, finalWidth, finalHeight);
     }
 
     public double getScaleFactor() {
@@ -170,51 +156,52 @@ public class Image extends AbstractGrob {
     }
 
     public void draw(Graphics2D g) {
-        setupTransform(g);
+        AffineTransform originalTransform = g.getTransform();
         // You can only position an image using an affine transformation.
         // We use the transformation to translate the image to the specified
         // position, and scale it according to the given width and height.
-        Transform imageTrans = new Transform();
+        Transform imageTrans = Transform.IDENTITY;
         // Move to the image position. Convert x, y, which are centered coordinates,
         // to "real" coordinates. 
         double factor = getScaleFactor();
         double finalWidth = image.getWidth() * factor;
         double finalHeight = image.getHeight() * factor;
-        imageTrans.translate(x - finalWidth / 2, y - finalHeight / 2);
+        imageTrans = imageTrans.translate(getX() - finalWidth / 2, getY() - finalHeight / 2);
         // Scaling only applies to image that have their desired width and/or height set.
         // However, getScaleFactor return 1 if height/width are not set, in effect negating
         // the effect of the scale.
-        imageTrans.scale(getScaleFactor());
+        imageTrans = imageTrans.scale(getScaleFactor());
         double a = clamp(alpha);
         Composite composite = AlphaComposite.getInstance(AlphaComposite.SRC_OVER, (float) a);
         Composite oldComposite = g.getComposite();
         g.setComposite(composite);
         g.drawRenderedImage(image, imageTrans.getAffineTransform());
         g.setComposite(oldComposite);
-        restoreTransform(g);
-    }
-
-
-    public Image clone() {
-        return new Image(this);
+        g.setTransform(originalTransform);
     }
 
     @Override
-    public boolean equals(Object obj) {
-        if (this == obj) return true;
-        if (!(obj instanceof Image)) return false;
-        Image other = (Image) obj;
-        return this.x == other.x
-                && this.y == other.y
-                && this.desiredWidth == other.desiredWidth
-                && this.desiredHeight == other.desiredHeight
-                && this.alpha == other.alpha
-                && this.image.equals(other.image)
-                && super.equals(other);
+    public int hashCode() {
+        return Objects.hashCode(image, position, desiredWidth, desiredHeight, alpha, transform);
+    }
+
+    @Override
+    public boolean equals(final Object o) {
+        if (o == this) return true;
+        if (o == null) return false;
+        if (!(o instanceof Image)) return false;
+
+        final Image other = (Image) o;
+        return Objects.equal(image, other.image)
+                && Objects.equal(position, other.position)
+                && Objects.equal(desiredWidth, other.desiredWidth)
+                && Objects.equal(alpha, other.alpha)
+                && Objects.equal(transform, other.transform);
     }
 
     @Override
     public String toString() {
         return "<Image (" + getWidth() + ", " + getHeight() + ")>";
     }
+
 }

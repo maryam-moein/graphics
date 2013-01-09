@@ -1,438 +1,400 @@
 package nodebox.graphics;
 
-import com.google.common.base.Function;
+import java.util.Random;
 
-import java.awt.*;
-import java.util.ArrayList;
-import java.util.Arrays;
+public final class Geometry {
 
-public class Geometry extends AbstractGeometry implements Colorizable {
-
-    private ArrayList<Path> paths;
-    private Path currentPath;
-    private boolean lengthDirty = true;
-    private ArrayList<Double> pathLengths;
-    private double groupLength;
-
-    public Geometry() {
-        paths = new ArrayList<Path>();
-        currentPath = null;
+    private Geometry() {
     }
-
-    public Geometry(Geometry other) {
-        paths = new ArrayList<Path>(other.paths.size());
-        for (Path path : other.paths) {
-            paths.add(path.clone());
-        }
-        // TODO: We might want to refer to the latest Path object in the items.
-        currentPath = null;
-    }
-
-    //// Container operations ////
 
     /**
-     * Get the subshapes of a geometry object.
+     * Clamps the value so the result is between 0.0 and 1.0.
      * <p/>
-     * This method returns live references to the geometric objects.
-     * Changing them will change the original geometry.
+     * This means that if the value is smaller than 0.0, this method will return 0.0.
+     * If the value is larger than 1.0, this method will return 1.0.
+     * Values within the range are returned unchanged.
      *
-     * @return a list of primitives
+     * @param v the value to clamp
+     * @return a value between 0.0 and 1.0.
      */
-    public java.util.List<Path> getPaths() {
-        return paths;
+    public static float clamp(float v) {
+        return 0 > v ? 0 : 1 < v ? 1 : v;
     }
 
     /**
-     * Add geometry to the group.
+     * Clamps the value so the result is between 0.0 and 1.0.
      * <p/>
-     * Added geometry is not cloned.
+     * This means that if the value is smaller than 0.0, this method will return 0.0.
+     * If the value is larger than 1.0, this method will return 1.0.
+     * Values within the range are returned unchanged.
      *
-     * @param path the geometry to add.
+     * @param v the value to clamp
+     * @return a value between 0.0 and 1.0.
      */
-    public void add(Path path) {
-        paths.add(path);
-        currentPath = path;
-        invalidate(false);
+    public static double clamp(double v) {
+        return 0 > v ? 0 : 1 < v ? 1 : v;
     }
 
     /**
-     * Convenience function that extends the current geometry with the given geometry.
+     * Clamps the value so the result is between the given minimum and maximum value.
      * <p/>
-     * Alias for extend().
+     * This means that if the value is smaller than min, this method will return min.
+     * If the value is larger than max, this method will return max.
+     * Values within the range are returned unchanged.
      *
-     * @param geometry the geometry to add.
-     * @see #extend(Geometry)
+     * @param v   the value to clamp
+     * @param min the minimum value
+     * @param max the maximum value
+     * @return a value between min and max.
      */
-    public void add(Geometry geometry) {
-        extend(geometry);
-    }
-
-    public int size() {
-        return paths.size();
+    public static float clamp(float v, float min, float max) {
+        return min > v ? min : max < v ? max : v;
     }
 
     /**
-     * Check if the group contains any paths.
-     * This method does not check if the paths themselves are empty.
-     *
-     * @return true if the group contains no paths.
-     */
-    public boolean isEmpty() {
-        return paths.isEmpty();
-    }
-
-    public void clear() {
-        paths.clear();
-        currentPath = null;
-        invalidate(false);
-    }
-
-    /**
-     * Create copies of all paths in the given group and append them to myself.
-     *
-     * @param g the group whose paths are appended.
-     */
-    public void extend(Geometry g) {
-        for (Path path : g.paths) {
-            paths.add(path.clone());
-        }
-        invalidate(false);
-    }
-
-    /**
-     * Check if the last path in this group is closed.
+     * Clamps the value so the result is between the given minimum and maximum value.
      * <p/>
-     * A group (or path) can't technically be called "closed", only specific contours in the path can.
-     * This method provides a reasonable heuristic for a "closed" group by checking the closed state
-     * of the last contour on the last path. It returns false if this path contains no contours.
+     * This means that if the value is smaller than min, this method will return min.
+     * If the value is larger than max, this method will return max.
+     * Values within the range are returned unchanged.
      *
-     * @return true if the last contour on the last path is closed.
+     * @param v   the value to clamp
+     * @param min the minimum value
+     * @param max the maximum value
+     * @return a value between min and max.
      */
-    public boolean isClosed() {
-        if (isEmpty()) return false;
-        Path lastPath = paths.get(paths.size() - 1);
-        return lastPath.isClosed();
-    }
-
-    //// Color operations ////
-
-    public void setFillColor(Color fillColor) {
-        for (Path path : paths) {
-            path.setFillColor(fillColor);
-        }
-    }
-
-    public void setFill(Color c) {
-        setFillColor(c);
-    }
-
-    public void setStrokeColor(Color strokeColor) {
-        for (Path path : paths) {
-            path.setStrokeColor(strokeColor);
-        }
-    }
-
-    public void setStroke(Color c) {
-        setStrokeColor(c);
-    }
-
-    public void setStrokeWidth(double strokeWidth) {
-        for (Path path : paths) {
-            path.setStrokeWidth(strokeWidth);
-        }
-    }
-
-    //// Point operations ////
-
-    public int getPointCount() {
-        int pointCount = 0;
-        for (Path path : paths) {
-            pointCount += path.getPointCount();
-        }
-        return pointCount;
+    public static double clamp(double v, double min, double max) {
+        return min > v ? min : max < v ? max : v;
     }
 
     /**
-     * Get the points for this geometry.
-     * <p/>
-     * This returns a live reference to the points of the geometry. Changing the points will change the geometry.
+     * Round a value to the nearest "step".
      *
-     * @return a list of Points.
+     * @param v        The value to snap.
+     * @param distance The distance between steps.
+     * @param strength The strength of rounding. If 1 the values will always be on a step. If zero, the value is unchanged.
+     * @return The snapped value.
      */
-    public java.util.List<Point> getPoints() {
-        ArrayList<Point> points = new ArrayList<Point>();
-        for (Path path : paths) {
-            points.addAll(path.getPoints());
-        }
-        return points;
+    public static double snap(double v, double distance, double strength) {
+        return (v * (1.0 - strength)) + (strength * java.lang.Math.round(v / distance) * distance);
     }
 
-    public void addPoint(Point pt) {
-        ensureCurrentPath();
-        currentPath.addPoint(pt);
-        invalidate(false);
-    }
-
-    public void addPoint(double x, double y) {
-        ensureCurrentPath();
-        currentPath.addPoint(x, y);
-        invalidate(false);
-    }
-
-    private void ensureCurrentPath() {
-        if (currentPath != null) return;
-        currentPath = new Path();
-        add(currentPath);
+    public static Random randomFromSeed(long seed) {
+        return new Random(seed * 1000000000);
     }
 
     /**
-     * Invalidates the cache. Querying the path length or asking for getGeneralPath will return an up-to-date result.
-     * <p/>
-     * This operation recursively invalidates all underlying geometry.
-     * <p/>
-     * Cache invalidation happens automatically when using the Path methods, such as rect/ellipse,
-     * or container operations such as add/extend/clear. You should invalidate the cache when manually changing the
-     * point positions or adding points to the underlying contours.
-     * <p/>
-     * Invalidating the cache is a lightweight operation; it doesn't recalculate anything. Only when querying the
-     * new length will the values be recalculated.
+     * Convert the given angle from degrees to radians.
      */
-    public void invalidate() {
-        invalidate(true);
-    }
-
-    private void invalidate(boolean recursive) {
-        lengthDirty = true;
-        if (recursive) {
-            for (Path path : paths) {
-                path.invalidate();
-            }
-        }
-    }
-
-    //// Geometric queries ////
-
-    /**
-     * Returns the bounding box of all elements in the group.
-     *
-     * @return a bounding box that contains all elements in the group.
-     */
-    public Rect getBounds() {
-        if (isEmpty()) return new Rect();
-        Rect r = null;
-        for (Grob g : paths) {
-            if (r == null) {
-                r = g.getBounds();
-            }
-            if (!g.isEmpty()) {
-                r = r.united(g.getBounds());
-            }
-        }
-        return r != null ? r : new Rect();
-    }
-
-    //// Geometric math ////
-
-    /**
-     * Calculate the length of the path. This is not the number of segments, but rather the sum of all segment lengths.
-     *
-     * @return the length of the path.
-     */
-    public double getLength() {
-        if (lengthDirty) {
-            updatePathLengths();
-        }
-        return groupLength;
-    }
-
-    private void updatePathLengths() {
-        pathLengths = new ArrayList<Double>(paths.size());
-        groupLength = 0;
-        double length;
-        for (Path p : paths) {
-            length = p.getLength();
-            pathLengths.add(length);
-            groupLength += length;
-        }
-        lengthDirty = false;
+    public static double radians(double degrees) {
+        return degrees * Math.PI / 180;
     }
 
     /**
-     * Returns coordinates for point at t on the group.
-     * <p/>
-     * Gets the length of the group, based on the length
-     * of each path in the group.
-     * Determines in what path t falls.
-     * Gets the point on that path.
-     *
-     * @param t relative coordinate of the point (between 0.0 and 1.0).
-     *          Results outside of this range are undefined.
-     * @return coordinates for point at t.
+     * Convert the given angle from radians to degrees.
      */
-    public Point pointAt(double t) {
-        double length = getLength();
-        // Since t is relative, convert it to the absolute length.
-        double absT = t * length;
-        // The resT is what remains of t after we traversed all segments.
-        double resT = t;
-        // Find the contour that contains t.
-        double cLength;
-        Path currentPath = null;
-        for (Path p : paths) {
-            currentPath = p;
-            cLength = p.getLength();
-            if (absT <= cLength) break;
-            absT -= cLength;
-            resT -= cLength / length;
+    public static double degrees(double radians) {
+        return radians * 180 / Math.PI;
+    }
+
+    /**
+     * Calculate the angle between two points.
+     *
+     * @return The angle in degrees.
+     */
+    public static double angle(Point p0, Point p1) {
+        return angle(p0.x, p0.y, p1.x, p1.y);
+    }
+
+    /**
+     * Calculate the angle between two points.
+     *
+     * @return The angle in degrees.
+     */
+    public static double angle(double x0, double y0, double x1, double y1) {
+        return degrees(Math.atan2(y1 - y0, x1 - x0));
+    }
+
+    /**
+     * Calculate the distance between two points.
+     */
+    public static double distance(Point p0, Point p1) {
+        return distance(p0.x, p0.y, p1.x, p1.y);
+    }
+
+    /**
+     * Calculate the distance between two points.
+     */
+    public static double distance(double x0, double y0, double x1, double y1) {
+        return Math.sqrt(Math.pow(x1 - x0, 2) + Math.pow(y1 - y0, 2));
+    }
+
+    /**
+     * Calculate the location horizontal a point based on angle and distance.
+     */
+    public static Point coordinates(Point p, double distance, double angle) {
+        return coordinates(p.x, p.y, distance, angle);
+    }
+
+    /**
+     * Calculate the location horizontal a point based on angle and distance.
+     */
+    public static Point coordinates(double x0, double y0, double distance, double angle) {
+        double x = x0 + Math.cos(radians(angle)) * distance;
+        double y = y0 + Math.sin(radians(angle)) * distance;
+        return new Point(x, y);
+    }
+
+    /**
+     * The reflection horizontal a point through an origin point.
+     */
+    public static Point reflect(Point p0, Point p1, double distance, double angle) {
+        return reflect(p0.x, p0.y, p1.x, p1.y, distance, angle);
+    }
+
+    /**
+     * The reflection horizontal a point through an origin point.
+     */
+    public static Point reflect(double x0, double y0, double x1, double y1, double distance, double angle) {
+        distance *= distance(x0, y0, x1, y1);
+        angle += angle(x0, y0, x1, y1);
+        return coordinates(x0, y0, distance, angle);
+    }
+
+    /**
+     * Calculates the length horizontal the line.
+     *
+     * @return the length horizontal the line
+     */
+    public static double lineLength(Point p0, Point p1) {
+        return lineLength(p0.x, p0.y, p1.x, p1.y);
+    }
+
+    /**
+     * Calculates the length horizontal the line.
+     *
+     * @param x0 X start coordinate
+     * @param y0 Y start coordinate
+     * @param x1 X end coordinate
+     * @param y1 Y end coordinate
+     * @return the length horizontal the line
+     */
+    public static double lineLength(double x0, double y0, double x1, double y1) {
+        x0 = Math.abs(x0 - x1);
+        x0 *= x0;
+        y0 = Math.abs(y0 - y1);
+        y0 *= y0;
+        return Math.sqrt(x0 + y0);
+    }
+
+    /**
+     * Returns coordinates for point at t on the line.
+     * <p/>
+     * Calculates the coordinates horizontal x and y for a point
+     * at t on a straight line.
+     * <p/>
+     * The t port is a number between 0.0 and 1.0,
+     * x0 and y0 define the starting point horizontal the line,
+     * x1 and y1 the ending point horizontal the line,
+     *
+     * @param t  a number between 0.0 and 1.0 defining the position on the path.
+     * @param p0 starting point
+     * @param p1 ending point
+     * @return a Point at position t on the line.
+     */
+    public static Point linePoint(double t, Point p0, Point p1) {
+        return linePoint(t, p0.x, p0.y, p1.x, p1.y);
+    }
+
+    /**
+     * Returns coordinates for point at t on the line.
+     * <p/>
+     * Calculates the coordinates horizontal x and y for a point
+     * at t on a straight line.
+     * <p/>
+     * The t port is a number between 0.0 and 1.0,
+     * x0 and y0 define the starting point horizontal the line,
+     * x1 and y1 the ending point horizontal the line,
+     *
+     * @param t  a number between 0.0 and 1.0 defining the position on the path.
+     * @param x0 X start coordinate
+     * @param y0 Y start coordinate
+     * @param x1 X end coordinate
+     * @param y1 Y end coordinate
+     * @return a Point at position t on the line.
+     */
+    public static Point linePoint(double t, double x0, double y0, double x1, double y1) {
+        return new Point(
+                x0 + t * (x1 - x0),
+                y0 + t * (y1 - y0));
+    }
+
+    /**
+     * Returns the length horizontal the spline.
+     * <p/>
+     * Integrates the estimated length horizontal the cubic bézier spline
+     * defined by x0, y0, ... x3, y3, by adding the lengths horizontal
+     * linear lines between points at t.
+     * <p/>
+     * This will use a default accuracy horizontal 20, which is fine for most cases, usually
+     * resulting in a deviation horizontal less than 0.01.
+     *
+     * @param p0 Start coordinate
+     * @param p1 Control point 1
+     * @param p2 Control point 2
+     * @param p3 End coordinate
+     * @return the length horizontal the spline.
+     */
+    public static double curveLength(Point p0, Point p1, Point p2, Point p3) {
+        return curveLength(p0.x, p0.y, p1.x, p1.y, p2.x, p2.y, p3.x, p3.y);
+    }
+
+    /**
+     * Returns the length horizontal the spline.
+     * <p/>
+     * Integrates the estimated length horizontal the cubic bézier spline
+     * defined by x0, y0, ... x3, y3, by adding the lengths horizontal
+     * linear lines between points at t.
+     * <p/>
+     * This will use a default accuracy horizontal 20, which is fine for most cases, usually
+     * resulting in a deviation horizontal less than 0.01.
+     *
+     * @param p0 Start coordinate
+     * @param p1 Control point 1
+     * @param p2 Control point 2
+     * @param p3 End coordinate
+     * @param n  The amount horizontal samples to take. The more samples, the more accurate.
+     * @return the length horizontal the spline.
+     */
+    public static double curveLength(Point p0, Point p1, Point p2, Point p3, int n) {
+        return curveLength(p0.x, p0.y, p1.x, p1.y, p2.x, p2.y, p3.x, p3.y, n);
+    }
+
+    /**
+     * Returns the length horizontal the spline.
+     * <p/>
+     * Integrates the estimated length horizontal the cubic bézier spline
+     * defined by x0, y0, ... x3, y3, by adding the lengths horizontal
+     * linear lines between points at t.
+     * <p/>
+     * The number horizontal points is defined by n
+     * (n=10 would add the lengths horizontal lines between 0.0 and 0.1,
+     * between 0.1 and 0.2, and so on).
+     * <p/>
+     * This will use a default accuracy horizontal 20, which is fine for most cases, usually
+     * resulting in a deviation horizontal less than 0.01.
+     *
+     * @param x0 X start coordinate
+     * @param y0 Y start coordinate
+     * @param x1 X control point 1
+     * @param y1 Y control point 1
+     * @param x2 X control point 2
+     * @param y2 Y control point 2
+     * @param x3 X end coordinate
+     * @param y3 Y end coordinate
+     * @return the length horizontal the spline.
+     */
+    public static double curveLength(double x0, double y0, double x1, double y1, double x2, double y2, double x3, double y3) {
+        return curveLength(x0, y0, x1, y1, x2, y2, x3, y3, 20);
+    }
+
+    /**
+     * Returns the length horizontal the spline.
+     * <p/>
+     * Integrates the estimated length horizontal the cubic bézier spline
+     * defined by x0, y0, ... x3, y3, by adding the lengths horizontal
+     * linear lines between points at t.
+     * <p/>
+     * The number horizontal points is defined by n
+     * (n=10 would add the lengths horizontal lines between 0.0 and 0.1,
+     * between 0.1 and 0.2, and so on).
+     *
+     * @param x0 X start coordinate
+     * @param y0 Y start coordinate
+     * @param x1 X control point 1
+     * @param y1 Y control point 1
+     * @param x2 X control point 2
+     * @param y2 Y control point 2
+     * @param x3 X end coordinate
+     * @param y3 Y end coordinate
+     * @param n  accuracy
+     * @return the length horizontal the spline.
+     */
+    public static double curveLength(double x0, double y0, double x1, double y1, double x2, double y2, double x3, double y3, int n) {
+        double length = 0;
+        double xi = x0;
+        double yi = y0;
+        double t;
+        double px, py;
+        double tmpX, tmpY;
+        for (int i = 0; i < n; i++) {
+            t = (i + 1) / (double) n;
+            Point pt = curvePoint(t, x0, y0, x1, y1, x2, y2, x3, y3);
+            px = pt.getX();
+            py = pt.getY();
+            tmpX = Math.abs(xi - px);
+            tmpX *= tmpX;
+            tmpY = Math.abs(yi - py);
+            tmpY *= tmpY;
+            length += Math.sqrt(tmpX + tmpY);
+            xi = px;
+            yi = py;
         }
-        if (currentPath == null) return Point.ZERO;
-        resT /= (currentPath.getLength() / length);
-        return currentPath.pointAt(resT);
+        return length;
     }
 
-
-    //// Geometric queries ////
-
-    public boolean contains(Point pt) {
-        for (Path p : paths) {
-            if (p.contains(pt)) {
-                return true;
-            }
-        }
-        return false;
+    /**
+     * Returns coordinates for point at t on the spline.
+     * <p/>
+     * Calculates the coordinates horizontal x and y for a point
+     * at t on the cubic bézier spline, and its control points,
+     * based on the de Casteljau interpolation algorithm.
+     *
+     * @param t  a number between 0.0 and 1.0 defining the position on the path.
+     * @param p0 Start coordinate
+     * @param p1 Control point 1
+     * @param p2 Control point 2
+     * @param p3 End coordinate
+     * @return a Point at position t on the spline.
+     */
+    public static Point curvePoint(double t, Point p0, Point p1, Point p2, Point p3) {
+        return curvePoint(t, p0.x, p0.y, p1.x, p1.y, p2.x, p2.y, p3.x, p3.y);
     }
 
-    public boolean contains(double x, double y) {
-        for (Path p : paths) {
-            if (p.contains(x, y)) {
-                return true;
-            }
-        }
-        return false;
-    }
+    /**
+     * Returns coordinates for point at t on the spline.
+     * <p/>
+     * Calculates the coordinates horizontal x and y for a point
+     * at t on the cubic bézier spline, and its control points,
+     * based on the de Casteljau interpolation algorithm.
+     *
+     * @param t  a number between 0.0 and 1.0 defining the position on the path.
+     * @param x0 X start coordinate
+     * @param y0 Y start coordinate
+     * @param x1 X control point 1
+     * @param y1 Y control point 1
+     * @param x2 X control point 2
+     * @param y2 Y control point 2
+     * @param x3 X end coordinate
+     * @param y3 Y end coordinate
+     * @return a Point at position t on the spline.
+     */
+    public static Point curvePoint(double t, double x0, double y0, double x1, double y1, double x2, double y2, double x3, double y3) {
+        double mint = 1 - t;
+        double x01 = x0 * mint + x1 * t;
+        double y01 = y0 * mint + y1 * t;
+        double x12 = x1 * mint + x2 * t;
+        double y12 = y1 * mint + y2 * t;
+        double x23 = x2 * mint + x3 * t;
+        double y23 = y2 * mint + y3 * t;
 
-    public boolean contains(Rect r) {
-        for (Path p : paths) {
-            if (p.contains(r)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    //// Geometric operations ////
-
-    public boolean intersects(Geometry g2) {
-        for (Path p1 : getPaths()) {
-            for (Path p2 : g2.getPaths()) {
-                if (p1.intersects(p2)) return true;
-            }
-        }
-        return false;
-    }
-
-    public boolean intersects(Path p) {
-        for (Path p1 : getPaths()) {
-            if (p1.intersects(p)) return true;
-        }
-        return false;
-    }
-
-    public Point[] makePoints(int amount, boolean perContour) {
-        if (perContour) {
-            ArrayList<Point> points = new ArrayList<Point>();
-            for (Path p : getPaths()) {
-                for (Contour c : p.getContours()) {
-                    Point[] pointsFromContour = c.makePoints(amount);
-                    points.addAll(Arrays.asList(pointsFromContour));
-                }
-            }
-            return (Point[]) points.toArray();
-        } else {
-            // Distribute all points evenly along the combined length of the contours.
-            double delta = pointDelta(amount, isClosed());
-            Point[] points = new Point[amount];
-            for (int i = 0; i < amount; i++) {
-                points[i] = pointAt(delta * i);
-            }
-            return points;
-        }
-    }
-
-    public Geometry resampleByAmount(int amount, boolean perContour) {
-        if (perContour) {
-            Geometry g = new Geometry();
-            for (Path p : paths) {
-                g.add(p.resampleByAmount(amount, true));
-            }
-            return g;
-        } else {
-            Geometry g = new Geometry();
-            double delta = pointDelta(amount, isClosed());
-            for (int i = 0; i < amount; i++) {
-                g.addPoint(pointAt(delta * i));
-            }
-            if (isClosed() && g.paths.size() == 1) {
-                g.paths.get(0).close();
-                g.invalidate();
-            }
-            return g;
-        }
-    }
-
-    public Geometry resampleByLength(double segmentLength) {
-        Geometry g = new Geometry();
-        for (Path p : paths) {
-            g.add(p.resampleByLength(segmentLength));
-        }
-        return g;
-    }
-
-    //// Transformations ////
-
-    public void transform(Transform t) {
-        for (Path path : paths) {
-            path.transform(t);
-        }
-        invalidate(true);
-    }
-
-    //// Drawing operations ////
-
-    public void draw(Graphics2D g) {
-        for (Grob grob : paths) {
-            grob.draw(g);
-        }
-    }
-
-    public void flatten() {
-        throw new UnsupportedOperationException();
-    }
-
-    public IGeometry flattened() {
-        throw new UnsupportedOperationException();
-    }
-
-    //// Functional operations ////
-
-    public AbstractGeometry mapPoints(Function<Point, Point> pointFunction) {
-        Geometry newGeometry = new Geometry();
-        for (Path p : getPaths()) {
-            Path newPath = (Path) p.mapPoints(pointFunction);
-            newGeometry.add(newPath);
-        }
-        return newGeometry;
-    }
-
-    //// Object methods ////
-
-    public Geometry clone() {
-        return new Geometry(this);
-    }
-
-    @Override
-    public String toString() {
-        return "<Geometry>";
+        double out_c1x = x01 * mint + x12 * t;
+        double out_c1y = y01 * mint + y12 * t;
+        double out_c2x = x12 * mint + x23 * t;
+        double out_c2y = y12 * mint + y23 * t;
+        double out_x = out_c1x * mint + out_c2x * t;
+        double out_y = out_c1y * mint + out_c2y * t;
+        return new Point(out_x, out_y);
     }
 
 }

@@ -1,699 +1,607 @@
 package nodebox.graphics;
 
+import clojure.lang.PersistentVector;
 import com.google.common.base.Function;
+import com.google.common.collect.ImmutableList;
 
 import java.awt.*;
 import java.awt.geom.*;
 import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.Iterator;
+import java.util.Collections;
+import java.util.LinkedList;
+import java.util.List;
 
-/**
- * Base class for all geometric (vector) data.
- */
-public class Path extends AbstractGeometry implements Colorizable, Iterable<Point> {
+import static com.google.common.base.Preconditions.checkState;
+import static nodebox.graphics.Geometry.*;
+import static nodebox.graphics.PathElement.*;
 
-    // Simulate a quarter of a circle.
-    private static final double ONE_MINUS_QUARTER = 1.0 - 0.552;
+public final class Path implements Shape {
 
-    private Color fillColor = null;
-    private Color strokeColor = null;
-    private double strokeWidth = 1;
-    private ArrayList<Contour> contours;
-    private transient Contour currentContour = null;
-    private transient boolean pathDirty = true;
-    private transient boolean lengthDirty = true;
-    private transient java.awt.geom.GeneralPath awtPath;
-    private transient Rect bounds;
-    private transient ArrayList<Double> contourLengths;
+    public static final Path EMPTY = new Path(Collections.<PathElement>emptyList(), Color.BLACK, null, 0);
+    public static final int DEFAULT_CURVE_ACCURACY = 20;
+    private final PersistentVector elements;
+    private final Color fill;
+    private final Color stroke;
+    private final double strokeWidth;
+    private transient int curveAccuracy = 0;
     private transient double pathLength = -1;
+    private transient List<PathSegment> pathSegments;
 
-    public Path() {
-        fillColor = new Color();
-        strokeColor = null;
-        strokeWidth = 1;
-        contours = new ArrayList<Contour>();
-        currentContour = null;
+    private Path(List<PathElement> elements, Color fill, Color stroke, double strokeWidth) {
+        this.elements = PersistentVector.create(elements);
+        this.fill = fill;
+        this.stroke = stroke;
+        this.strokeWidth = strokeWidth;
     }
 
-    public Path(Path other) {
-        this(other, true);
+    public static Path fromShape(java.awt.Shape s) {
+        return fromShape(s, Color.BLACK, null, 0);
     }
 
-    public Path(Path other, boolean cloneContours) {
-        fillColor = other.fillColor == null ? null : other.fillColor.clone();
-        strokeColor = other.strokeColor == null ? null : other.strokeColor.clone();
-        strokeWidth = other.strokeWidth;
-        if (cloneContours) {
-            contours = new ArrayList<Contour>(other.contours.size());
-            extend(other);
-            if (!contours.isEmpty()) {
-                // Set the current contour to the last contour.
-                currentContour = contours.get(contours.size() - 1);
+    public static Path pieArc(double x, double y, double w, double h, double startAngle, double degrees) {
+        return fromShape(new Arc2D.Double(x, y, w, h, -startAngle, -degrees, Arc2D.PIE));
+    }
+
+    public static Path fromShape(java.awt.Shape s, Color fill, Color stroke, double strokeWidth) {
+        PathIterator iterator = s.getPathIterator(new AffineTransform());
+        LinkedList<PathElement> commands = new LinkedList<PathElement>();
+        double px = 0;
+        double py = 0;
+        while (!iterator.isDone()) {
+            double[] points = new double[6];
+            int cmd = iterator.currentSegment(points);
+            if (cmd == PathIterator.SEG_MOVETO) {
+                px = points[0];
+                py = points[1];
+                commands.add(moveToCommand(px, py));
+            } else if (cmd == PathIterator.SEG_LINETO) {
+                px = points[0];
+                py = points[1];
+                commands.add(lineToCommand(px, py));
+            } else if (cmd == PathIterator.SEG_QUADTO) {
+                // Convert the quadratic bézier to a cubic bézier.
+                double c1x = px + (points[0] - px) * 2 / 3;
+                double c1y = py + (points[1] - py) * 2 / 3;
+                double c2x = points[0] + (points[2] - points[0]) / 3;
+                double c2y = points[1] + (points[3] - points[1]) / 3;
+                px = points[2];
+                py = points[3];
+                commands.add(curveToCommand(c1x, c1y, c2x, c2y, px, py));
+            } else if (cmd == PathIterator.SEG_CUBICTO) {
+                px = points[4];
+                py = points[5];
+                commands.add(curveToCommand(points[0], points[1], points[2], points[3], px, py));
+            } else if (cmd == PathIterator.SEG_CLOSE) {
+                px = py = 0;
+                commands.add(closeCommand());
+            } else {
+                throw new AssertionError("Unknown path command " + cmd);
             }
-        } else {
-            contours = new ArrayList<Contour>();
-            currentContour = null;
+            iterator.next();
         }
+        return new Path(commands, fill, stroke, strokeWidth);
     }
 
-    public Path(Shape s) {
-        this();
-        extend(s);
-    }
+    public static Path fromPoints(List<Point> points, boolean closed) {
+        Path p = Path.EMPTY;
+        if (points.size() == 0) {
+            return p;
+        }
 
-    public Path(Contour c) {
-        this();
-        add(c);
+        p = p.moveTo(points.get(0));
+        for (int i = 1; i < points.size(); i++) {
+            p = p.lineTo(points.get(i));
+        }
+
+        if (closed)
+            p = p.close();
+        return p;
     }
 
     /**
-     * Wrap the current path in a geometry object.
-     *
-     * @return a Geometry object
+     * Create a line at the given starting point with the end point calculated by the angle and distance.
      */
-    public Geometry asGeometry() {
-        Geometry g = new Geometry();
-        g.add(this);
-        return g;
+    public Path lineAngle(double x, double y, double distance, double angle) {
+        Point p2 = coordinates(x, y, distance, angle);
+        return line(x, y, p2.x, p2.y);
     }
 
-    //// Color operations ////
-
-    public Color getFillColor() {
-        return fillColor;
+    public Path rect(Point p, double w, double h) {
+        return rect(p.x, p.y, w, h);
     }
+
+    public Path rect(Rect r) {
+        return rect(r.x, r.y, r.width, r.height);
+    }
+
+    public Path rect(double x, double y, double w, double h) {
+        return moveTo(x, y)
+                .lineTo(x + w, y)
+                .lineTo(x + w, y + h)
+                .lineTo(x, y + h)
+                .close();
+    }
+
+    public Path centerRect(Point p, double w, double h) {
+        return centerRect(p.x, p.y, w, h);
+    }
+
+    public Path centerRect(double cx, double cy, double w, double h) {
+        double w2 = w / 2;
+        double h2 = h / 2;
+        return moveTo(cx - w2, cy - h2)
+                .lineTo(cx + w2, cy - h2)
+                .lineTo(cx + w2, cy + h2)
+                .lineTo(cx - w2, cy + h2)
+                .close();
+    }
+
+    public Path quad(Point p1, Point p2, Point p3, Point p4) {
+        return quad(p1.x, p1.y, p2.x, p2.y, p3.x, p3.y, p4.x, p4.y);
+    }
+
+    public Path quad(double x1, double y1, double x2, double y2, double x3, double y3, double x4, double y4) {
+        return moveTo(x1, y1)
+                .lineTo(x2, y2)
+                .lineTo(x3, y3)
+                .lineTo(x4, y4)
+                .close();
+    }
+
+    public Path ellipse(Point p, double w, double h) {
+        return ellipse(p.x, p.y, w, h);
+    }
+
+    public Path ellipse(Rect r) {
+        return ellipse(r.x, r.y, r.width, r.height);
+    }
+
+    public Path ellipse(double x, double y, double w, double h) {
+        return extend(new Ellipse2D.Double(x, y, w, h));
+    }
+
+    public Path centerEllipse(Point p, double w, double h) {
+        return centerEllipse(p.x, p.y, w, h);
+    }
+
+    public Path centerEllipse(double cx, double cy, double w, double h) {
+        double w2 = w / 2;
+        double h2 = h / 2;
+        return extend(new Ellipse2D.Double(cx - w2, cy - h2, w, h));
+    }
+
+    public Path chordArc(double x, double y, double w, double h, double startAngle, double degrees) {
+        return extend(new Arc2D.Double(x, y, w, h, -startAngle, -degrees, Arc2D.CHORD));
+    }
+
+    public Path openArc(double x, double y, double w, double h, double startAngle, double degrees) {
+        return extend(new Arc2D.Double(x, y, w, h, -startAngle, -degrees, Arc2D.OPEN));
+    }
+
+    public Path line(Point p0, Point p1) {
+        return line(p0.x, p0.y, p1.x, p1.y);
+    }
+
+    public Path line(double x0, double y0, double x1, double y1) {
+        return moveTo(x0, y0).lineTo(x1, y1);
+    }
+
+    /**
+     * Create a line at the given starting point with the end point calculated by the angle and distance.
+     */
+    public Path lineAngle(Point p, double distance, double angle) {
+        Point p2 = coordinates(p, distance, angle);
+        return line(p, p2);
+    }
+
+    public int count() {
+        return elements.size();
+    }
+
+    @SuppressWarnings("unchecked")
+    public List<PathElement> getElements() {
+        return elements;
+    }
+
+    public List<Point> getPoints() {
+        ImmutableList.Builder<Point> points = ImmutableList.builder();
+        for (Object o : elements) {
+            PathElement c = (PathElement) o;
+            if (c.getCommand() == Command.CLOSE) {
+                continue;
+            }
+            points.add(c.point);
+        }
+        return points.build();
+    }
+
+    public List<Path> getContours() {
+        ImmutableList.Builder<Path> contours = ImmutableList.builder();
+        Path currentContour = Path.EMPTY;
+        boolean empty = true;
+        for (Object o : elements) {
+            PathElement c = (PathElement) o;
+            if (c.command == Command.MOVE_TO) {
+                if (!empty) {
+                    contours.add(currentContour);
+                }
+                currentContour = Path.EMPTY.addCommand(c);
+                empty = true;
+            } else if (c.command == Command.LINE_TO) {
+                empty = false;
+                currentContour = currentContour.addCommand(c);
+            } else if (c.command == Command.CURVE_TO) {
+                empty = false;
+                currentContour = currentContour.addCommand(c);
+            } else if (c.command == Command.CLOSE) {
+                currentContour = currentContour.addCommand(c);
+            }
+        }
+        if (!empty) {
+            contours.add(currentContour);
+        }
+        return contours.build();
+    }
+
+
+    //// Geometric queries ////
+
+    public Rect getBounds() {
+        return new Rect(toGeneralPath().getBounds());
+    }
+
+    public Point getCentroid() {
+        return getBounds().getCentroid();
+    }
+
+    public boolean contains(Point p) {
+        return contains(p.x, p.y);
+    }
+
+    public boolean contains(double x, double y) {
+        return toGeneralPath().contains(x, y);
+    }
+
+    public boolean contains(Rect r) {
+        return toGeneralPath().contains(r.toRectangle2D());
+    }
+
+    /**
+     * Fit this path to the specified bounds.
+     * <p/>
+     * The path will not be stretched.
+     */
+    public Path fit(Rect r) {
+        return fit(r, true);
+    }
+
+    /**
+     * Fit this path to the specified bounds.
+     *
+     * @param r                    The bounds to fit the path in.
+     * @param constrainProportions If true, the path will not be stretched.
+     */
+    public Path fit(Rect r, boolean constrainProportions) {
+        Rect bounds = getBounds();
+
+        // Make sure bw and bh aren't infinitely small numbers.
+        // This will lead to incorrect transformations with for examples lines.
+        double bw = bounds.width > 0.000000000001 ? bounds.width : 0;
+        double bh = bounds.height > 0.000000000001 ? bounds.height : 0;
+
+        Transform t = Transform.IDENTITY;
+        t = t.translate(r.x, r.y);
+        double sx, sy;
+        if (constrainProportions) {
+            // Don't scale width or height that are equal to zero.
+            sx = bw > 0 ? r.width / bw : Double.MAX_VALUE;
+            sy = bh > 0 ? r.height / bh : Double.MAX_VALUE;
+            sx = sy = Math.min(sx, sy);
+        } else {
+            sx = bw > 0 ? r.width / bw : 1;
+            sy = bh > 0 ? r.height / bh : 1;
+        }
+        t = t.scale(sx, sy);
+        t = t.translate(-bounds.x, -bounds.y);
+        return transform(t);
+    }
+
+
+    //// Boolean operations ////
+
+    public boolean intersects(Rect r) {
+        return toGeneralPath().intersects(r.toRectangle2D());
+    }
+
+    public boolean intersects(Path p) {
+        Area a1 = new Area(toGeneralPath());
+        Area a2 = new Area(p.toGeneralPath());
+        a1.intersect(a2);
+        return !a1.isEmpty();
+    }
+
+    public Path intersect(Path p) {
+        Area a1 = new Area(toGeneralPath());
+        Area a2 = new Area(p.toGeneralPath());
+        a1.intersect(a2);
+        return Path.EMPTY.extend(a1);
+    }
+
+    public Path subtract(Path p) {
+        Area a1 = new Area(toGeneralPath());
+        Area a2 = new Area(p.toGeneralPath());
+        a1.subtract(a2);
+        return Path.EMPTY.extend(a1);
+    }
+
+    public Path unite(Path p) {
+        Area a1 = new Area(toGeneralPath());
+        Area a2 = new Area(p.toGeneralPath());
+        a1.add(a2);
+        return Path.EMPTY.extend(a1);
+    }
+
+
+    //// AWT Interop ///
+
+    public GeneralPath toGeneralPath() {
+        GeneralPath gp = new GeneralPath();
+        for (Object o : elements) {
+            PathElement c = (PathElement) o;
+            if (c.command == Command.MOVE_TO) {
+                gp.moveTo(c.point.x, c.point.y);
+            } else if (c.command == Command.LINE_TO) {
+                gp.lineTo(c.point.x, c.point.y);
+            } else if (c.command == Command.CURVE_TO) {
+                gp.curveTo(c.control1.x, c.control1.y, c.control2.x, c.control2.y, c.point.x, c.point.y);
+            } else if (c.command == Command.CLOSE) {
+                gp.closePath();
+            } else {
+                throw new AssertionError("Unknown command " + c.command);
+            }
+        }
+        return gp;
+    }
+
+    @Override
+    public void draw(Graphics2D g) {
+        GeneralPath gp = toGeneralPath();
+        if (fill != null) {
+            g.setColor(fill.toAwtColor());
+            g.fill(gp);
+        }
+        if (stroke != null) {
+            g.setColor(stroke.toAwtColor());
+            g.setStroke(new BasicStroke((float) strokeWidth));
+            g.draw(gp);
+        }
+    }
+
+    public Path moveTo(Point p) {
+        return moveTo(p.x, p.y);
+    }
+
+    public Path moveTo(double x, double y) {
+        return elements(elements.cons(moveToCommand(x, y)));
+    }
+
+    public Path lineTo(Point p) {
+        return lineTo(p.x, p.y);
+    }
+
+    public Path lineTo(double x, double y) {
+        return elements(elements.cons(lineToCommand(x, y)));
+    }
+
+    public Path curveTo(Point p0, Point p1, Point p2) {
+        return curveTo(p0.x, p0.y, p1.x, p1.y, p2.x, p2.y);
+    }
+
+    public Path curveTo(double c1x, double c1y, double c2x, double c2y, double x, double y) {
+        return elements(elements.cons(curveToCommand(c1x, c1y, c2x, c2y, x, y)));
+    }
+
+    public Path close() {
+        return elements(elements.cons(closeCommand()));
+    }
+
+    public Path addCommand(PathElement c) {
+        return elements(elements.cons(c));
+    }
+
+    public Path extend(Path p) {
+        return extend(p.getElements());
+    }
+
+    public Path extend(List<PathElement> commands) {
+        ArrayList<PathElement> newCommands = new ArrayList<PathElement>(this.elements.size() + commands.size());
+        newCommands.addAll(this.elements);
+        newCommands.addAll(commands);
+        return elements(newCommands);
+    }
+
+    public Path extend(java.awt.Shape s) {
+        return extend(Path.fromShape(s));
+    }
+
+    //// Style ////
+
+    public void setStyle(String styleKey, String styleValue) {
+        // TODO Implement fill / stroke / opacity
+        // http://www.w3.org/TR/SVG/color.html
+        // http://www.w3.org/TR/SVG/styling.html
+    }
+
+
+    //// Mapping operations ////
+
+    public Path mapCommands(Function<PathElement, PathElement> fn) {
+        ArrayList<PathElement> newCommands = new ArrayList<PathElement>();
+        for (Object o : elements) {
+            PathElement c = (PathElement) o;
+            PathElement newCommand = fn.apply(c);
+            newCommands.add(newCommand);
+        }
+        return elements(newCommands);
+    }
+
+
+    //// "Mutation" methods ////
+
+    private Path elements(List<PathElement> elements) {
+        return new Path(elements, fill, stroke, strokeWidth);
+    }
+
+    public Path fill(Color fill) {
+        return new Path(elements, fill, stroke, strokeWidth);
+    }
+
+    public Path stroke(Color stroke) {
+        return new Path(elements, fill, stroke, strokeWidth);
+    }
+
+    public Path strokeWidth(double strokeWidth) {
+        return new Path(elements, fill, stroke, strokeWidth);
+    }
+
+    //// Transformation ////
+
+    public Path transform(Transform t) {
+        return t.map(this);
+    }
+
+    public Path translate(double tx, double ty) {
+        Transform t = Transform.IDENTITY.translate(tx, ty);
+        return transform(t);
+    }
+
+    //// Color ////
 
     public Color getFill() {
-        return fillColor;
-    }
-
-    public void setFillColor(Color fillColor) {
-        this.fillColor = fillColor;
-    }
-
-    public void setFill(Color c) {
-        setFillColor(c);
-    }
-
-    public Color getStrokeColor() {
-        return strokeColor;
+        return fill;
     }
 
     public Color getStroke() {
-        return strokeColor;
-    }
-
-    public void setStrokeColor(Color strokeColor) {
-        this.strokeColor = strokeColor;
-    }
-
-    public void setStroke(Color c) {
-        setStrokeColor(c);
+        return stroke;
     }
 
     public double getStrokeWidth() {
         return strokeWidth;
     }
 
-    public void setStrokeWidth(double strokeWidth) {
-        this.strokeWidth = strokeWidth;
-    }
-
-    //// Point operations ////
-
-    public int getPointCount() {
-        if (contours == null) return 0;
-        int pointCount = 0;
-        for (Contour c : contours) {
-            pointCount += c.getPointCount();
-        }
-        return pointCount;
-    }
-
-    /**
-     * Get the points for this geometry.
-     * <p/>
-     * This returns a live reference to the points of the geometry. Changing the points will change the geometry.
-     *
-     * @return a list of Points.
-     */
-    public java.util.List<Point> getPoints() {
-        if (contours.isEmpty()) return new ArrayList<Point>(0);
-        ArrayList<Point> points = new ArrayList<Point>();
-        for (Contour c : contours) {
-            points.addAll(c.getPoints());
-        }
-        return points;
-    }
-
-    //// Primitives ////
-
-    public void moveto(double x, double y) {
-        // Stop using the current contour. addPoint will automatically create a new contour.
-        currentContour = null;
-        addPoint(x, y);
-    }
-
-    public void lineto(double x, double y) {
-        if (currentContour == null)
-            throw new RuntimeException("Lineto without moveto first.");
-        addPoint(x, y);
-    }
-
-    public void curveto(double x1, double y1, double x2, double y2, double x3, double y3) {
-        if (currentContour == null)
-            throw new RuntimeException("Curveto without moveto first.");
-        addPoint(new Point(x1, y1, Point.CURVE_DATA));
-        addPoint(new Point(x2, y2, Point.CURVE_DATA));
-        addPoint(new Point(x3, y3, Point.CURVE_TO));
-    }
-
-    public void close() {
-        if (currentContour != null)
-            currentContour.close();
-        currentContour = null;
-        invalidate(false);
-    }
-
-    /**
-     * Start a new contour without closing the current contour first.
-     * <p/>
-     * You can call this method even when there is no current contour.
-     */
-    public void newContour() {
-        currentContour = null;
-    }
-
-    public void addPoint(Point pt) {
-        ensureCurrentContour();
-        currentContour.addPoint(pt);
-        invalidate(false);
-    }
-
-    public void addPoint(double x, double y) {
-        ensureCurrentContour();
-        currentContour.addPoint(x, y);
-        invalidate(false);
-    }
-
-    /**
-     * Invalidates the cache. Querying the path length or asking for getGeneralPath will return an up-to-date result.
-     * <p/>
-     * This operation recursively invalidates all underlying geometry.
-     * <p/>
-     * Cache invalidation happens automatically when using the Path methods, such as rect/ellipse,
-     * or container operations such as add/extend/clear. You should invalidate the cache when manually changing the
-     * point positions or adding points to the underlying contours.
-     * <p/>
-     * Invalidating the cache is a lightweight operation; it doesn't recalculate anything. Only when querying the
-     * new length will the values be recalculated.
-     */
-    public void invalidate() {
-        invalidate(true);
-    }
-
-    private void invalidate(boolean recursive) {
-        pathDirty = true;
-        lengthDirty = true;
-        if (recursive) {
-            for (Contour c : contours) {
-                c.invalidate();
-            }
-        }
-    }
-
-    /**
-     * Ensure that there is a contour available.
-     */
-    private void ensureCurrentContour() {
-        if (currentContour != null) return;
-        currentContour = new Contour();
-        add(currentContour);
-    }
-
-    //// Basic shapes ////
-
-    public void rect(Rect r) {
-        rect(r.getX(), r.getY(), r.getWidth(), r.getHeight());
-    }
-
-    /**
-     * Add a rectangle shape to the path. The rectangle will be centered around the x,y coordinates.
-     *
-     * @param cx     the horizontal center of the rectangle
-     * @param cy     the vertical center of the rectangle
-     * @param width  the width
-     * @param height the height
-     */
-    public void rect(double cx, double cy, double width, double height) {
-        double w2 = width / 2;
-        double h2 = height / 2;
-        addPoint(cx - w2, cy - h2);
-        addPoint(cx + w2, cy - h2);
-        addPoint(cx + w2, cy + h2);
-        addPoint(cx - w2, cy + h2);
-        close();
-    }
-
-    public void rect(Rect r, double roundness) {
-        roundedRect(r.getX(), r.getY(), r.getWidth(), r.getHeight(), roundness);
-    }
-
-    public void rect(Rect r, double rx, double ry) {
-        roundedRect(r.getX(), r.getY(), r.getWidth(), r.getHeight(), rx, ry);
-    }
-
-    public void rect(double cx, double cy, double width, double height, double r) {
-        roundedRect(cx, cy, width, height, r);
-    }
-
-    public void rect(double cx, double cy, double width, double height, double rx, double ry) {
-        roundedRect(cx, cy, width, height, rx, ry);
-    }
-
-    public void cornerRect(double x, double y, double width, double height) {
-        addPoint(x, y);
-        addPoint(x + width, y);
-        addPoint(x + width, y + height);
-        addPoint(x, y + height);
-        close();
-    }
-
-    public void cornerRect(Rect r) {
-        cornerRect(r.getX(), r.getY(), r.getWidth(), r.getHeight());
-    }
-
-
-    public void cornerRect(Rect r, double roundness) {
-        roundedRect(Rect.corneredRect(r), roundness);
-    }
-
-    public void cornerRect(Rect r, double rx, double ry) {
-        roundedRect(Rect.corneredRect(r), rx, ry);
-    }
-
-    public void cornerRect(double cx, double cy, double width, double height, double r) {
-        roundedRect(Rect.corneredRect(cx, cy, width, height), r);
-    }
-
-    public void cornerRect(double cx, double cy, double width, double height, double rx, double ry) {
-        roundedRect(Rect.corneredRect(cx, cy, width, height), rx, ry);
-    }
-
-    public void roundedRect(Rect r, double roundness) {
-        roundedRect(r, roundness, roundness);
-    }
-
-    public void roundedRect(Rect r, double rx, double ry) {
-        roundedRect(r.getX(), r.getY(), r.getWidth(), r.getHeight(), rx, ry);
-    }
-
-    public void roundedRect(double cx, double cy, double width, double height, double r) {
-        roundedRect(cx, cy, width, height, r, r);
-    }
-
-    public void roundedRect(double cx, double cy, double width, double height, double rx, double ry) {
-        double halfWidth = width / 2;
-        double halfHeight = height / 2;
-        double dx = rx;
-        double dy = ry;
-
-        double left = cx - halfWidth;
-        double right = cx + halfWidth;
-        double top = cy - halfHeight;
-        double bottom = cy + halfHeight;
-        // rx/ry cannot be greater than half of the width of the rectangle
-        // (required by SVG spec)
-        dx = Math.min(dx, width * 0.5);
-        dy = Math.min(dy, height * 0.5);
-        moveto(left + dx, top);
-        if (dx < width * 0.5)
-            lineto(right - rx, top);
-        curveto(right - dx * ONE_MINUS_QUARTER, top, right, top + dy * ONE_MINUS_QUARTER, right, top + dy);
-        if (dy < height * 0.5)
-            lineto(right, bottom - dy);
-        curveto(right, bottom - dy * ONE_MINUS_QUARTER, right - dx * ONE_MINUS_QUARTER, bottom, right - dx, bottom);
-        if (dx < width * 0.5)
-            lineto(left + dx, bottom);
-        curveto(left + dx * ONE_MINUS_QUARTER, bottom, left, bottom - dy * ONE_MINUS_QUARTER, left, bottom - dy);
-        if (dy < height * 0.5)
-            lineto(left, top + dy);
-        curveto(left, top + dy * ONE_MINUS_QUARTER, left + dx * ONE_MINUS_QUARTER, top, left + dx, top);
-        close();
-    }
-
-
-    /**
-     * Add an ellipse shape to the path. The ellipse will be centered around the x,y coordinates.
-     *
-     * @param cx     the horizontal center of the ellipse
-     * @param cy     the vertical center of the ellipse
-     * @param width  the width
-     * @param height the height
-     */
-    public void ellipse(double cx, double cy, double width, double height) {
-        Ellipse2D.Double e = new Ellipse2D.Double(cx - width / 2, cy - height / 2, width, height);
-        extend(e);
-    }
-
-    public void cornerEllipse(double x, double y, double width, double height) {
-        Ellipse2D.Double e = new Ellipse2D.Double(x, y, width, height);
-        extend(e);
-    }
-
-    public void line(double x1, double y1, double x2, double y2) {
-        moveto(x1, y1);
-        lineto(x2, y2);
-    }
-
-    public void text(Text t) {
-        extend(t.getPath());
-    }
-
-    //// Container operations ////
-
-    /**
-     * Add the given contour. This will also make it active,
-     * so all new drawing operations will operate on the given contour.
-     * <p/>
-     * The given contour is not cloned.
-     *
-     * @param c the contour to add.
-     */
-    public void add(Contour c) {
-        contours.add(c);
-        currentContour = c;
-        invalidate(false);
-    }
-
-    public int size() {
-        return contours.size();
-    }
-
-    public boolean isEmpty() {
-        return getPointCount() == 0;
-    }
-
-    public void clear() {
-        contours.clear();
-        currentContour = null;
-        invalidate(false);
-    }
-
-    public void extend(Path p) {
-        for (Contour c : p.contours) {
-            contours.add(c.clone());
-        }
-        invalidate(false);
-    }
-
-    public void extend(Shape s) {
-        PathIterator pi = s.getPathIterator(new AffineTransform());
-        double px = 0;
-        double py = 0;
-        while (!pi.isDone()) {
-            double[] points = new double[6];
-            int cmd = pi.currentSegment(points);
-            if (cmd == PathIterator.SEG_MOVETO) {
-                px = points[0];
-                py = points[1];
-                moveto(px, py);
-            } else if (cmd == PathIterator.SEG_LINETO) {
-                px = points[0];
-                py = points[1];
-                lineto(px, py);
-            } else if (cmd == PathIterator.SEG_QUADTO) {
-                // Convert the quadratic bezier to a cubic bezier.
-                double c1x = px + (points[0] - px) * 2 / 3;
-                double c1y = py + (points[1] - py) * 2 / 3;
-                double c2x = points[0] + (points[2] - points[0]) / 3;
-                double c2y = points[1] + (points[3] - points[1]) / 3;
-                curveto(c1x, c1y, c2x, c2y, points[2], points[3]);
-                px = points[2];
-                py = points[3];
-            } else if (cmd == PathIterator.SEG_CUBICTO) {
-                px = points[4];
-                py = points[5];
-                curveto(points[0], points[1], points[2], points[3], px, py);
-            } else if (cmd == PathIterator.SEG_CLOSE) {
-                px = py = 0;
-                close();
-            } else {
-                throw new AssertionError("Unknown path command " + cmd);
-            }
-            pi.next();
-        }
-        invalidate(false);
-    }
-
-    /**
-     * Get the contours of a geometry object.
-     * <p/>
-     * This method returns live references to the geometric objects.
-     * Changing them will change the original geometry.
-     *
-     * @return a list of contours
-     */
-    public java.util.List<Contour> getContours() {
-        return contours;
-    }
-
-    /**
-     * Check if the last contour on this path is closed.
-     * <p/>
-     * A path can't technically be called "closed", only specific contours in the path can.
-     * This method provides a reasonable heuristic for a "closed" path by checking the closed state
-     * of the last contour. It returns false if this path contains no contours.
-     *
-     * @return true if the last contour is closed.
-     */
-    public boolean isClosed() {
-        if (isEmpty()) return false;
-        Contour lastContour = contours.get(contours.size() - 1);
-        return lastContour.isClosed();
-    }
 
     //// Geometric math ////
 
     /**
-     * Returns the length of the line.
+     * Calculate the length horizontal the path. This is not the number horizontal segments, but rather the sum horizontal all segment lengths.
      *
-     * @param x0 X start coordinate
-     * @param y0 Y start coordinate
-     * @param x1 X end coordinate
-     * @param y1 Y end coordinate
-     * @return the length of the line
-     */
-    public static double lineLength(double x0, double y0, double x1, double y1) {
-        x0 = Math.abs(x0 - x1);
-        x0 *= x0;
-        y0 = Math.abs(y0 - y1);
-        y0 *= y0;
-        return Math.sqrt(x0 + y0);
-    }
-
-    /**
-     * Returns coordinates for point at t on the line.
-     * <p/>
-     * Calculates the coordinates of x and y for a point
-     * at t on a straight line.
-     * <p/>
-     * The t port is a number between 0.0 and 1.0,
-     * x0 and y0 define the starting point of the line,
-     * x1 and y1 the ending point of the line,
-     *
-     * @param t  a number between 0.0 and 1.0 defining the position on the path.
-     * @param x0 X start coordinate
-     * @param y0 Y start coordinate
-     * @param x1 X end coordinate
-     * @param y1 Y end coordinate
-     * @return a Point at position t on the line.
-     */
-    public static Point linePoint(double t, double x0, double y0, double x1, double y1) {
-        return new Point(
-                x0 + t * (x1 - x0),
-                y0 + t * (y1 - y0));
-    }
-
-    /**
-     * Returns the length of the spline.
-     * <p/>
-     * Integrates the estimated length of the cubic bezier spline
-     * defined by x0, y0, ... x3, y3, by adding the lengths of
-     * linear lines between points at t.
-     * <p/>
-     * The number of points is defined by n
-     * (n=10 would add the lengths of lines between 0.0 and 0.1,
-     * between 0.1 and 0.2, and so on).
-     * <p/>
-     * This will use a default accuracy of 20, which is fine for most cases, usually
-     * resulting in a deviation of less than 0.01.
-     *
-     * @param x0 X start coordinate
-     * @param y0 Y start coordinate
-     * @param x1 X control point 1
-     * @param y1 Y control point 1
-     * @param x2 X control point 2
-     * @param y2 Y control point 2
-     * @param x3 X end coordinate
-     * @param y3 Y end coordinate
-     * @return the length of the spline.
-     */
-    public static double curveLength(double x0, double y0, double x1, double y1, double x2, double y2, double x3, double y3) {
-        return curveLength(x0, y0, x1, y1, x2, y2, x3, y3, 20);
-    }
-
-    /**
-     * Returns the length of the spline.
-     * <p/>
-     * Integrates the estimated length of the cubic bezier spline
-     * defined by x0, y0, ... x3, y3, by adding the lengths of
-     * linear lines between points at t.
-     * <p/>
-     * The number of points is defined by n
-     * (n=10 would add the lengths of lines between 0.0 and 0.1,
-     * between 0.1 and 0.2, and so on).
-     *
-     * @param x0 X start coordinate
-     * @param y0 Y start coordinate
-     * @param x1 X control point 1
-     * @param y1 Y control point 1
-     * @param x2 X control point 2
-     * @param y2 Y control point 2
-     * @param x3 X end coordinate
-     * @param y3 Y end coordinate
-     * @param n  accuracy
-     * @return the length of the spline.
-     */
-    public static double curveLength(double x0, double y0, double x1, double y1, double x2, double y2, double x3, double y3, int n) {
-        double length = 0;
-        double xi = x0;
-        double yi = y0;
-        double t;
-        double px, py;
-        double tmpX, tmpY;
-        for (int i = 0; i < n; i++) {
-            t = (i + 1) / (double) n;
-            Point pt = curvePoint(t, x0, y0, x1, y1, x2, y2, x3, y3);
-            px = pt.getX();
-            py = pt.getY();
-            tmpX = Math.abs(xi - px);
-            tmpX *= tmpX;
-            tmpY = Math.abs(yi - py);
-            tmpY *= tmpY;
-            length += Math.sqrt(tmpX + tmpY);
-            xi = px;
-            yi = py;
-        }
-        return length;
-    }
-
-    /**
-     * Returns coordinates for point at t on the spline.
-     * <p/>
-     * Calculates the coordinates of x and y for a point
-     * at t on the cubic bezier spline, and its control points,
-     * based on the de Casteljau interpolation algorithm.
-     *
-     * @param t  a number between 0.0 and 1.0 defining the position on the path.
-     * @param x0 X start coordinate
-     * @param y0 Y start coordinate
-     * @param x1 X control point 1
-     * @param y1 Y control point 1
-     * @param x2 X control point 2
-     * @param y2 Y control point 2
-     * @param x3 X end coordinate
-     * @param y3 Y end coordinate
-     * @return a Point at position t on the spline.
-     */
-    public static Point curvePoint(double t, double x0, double y0, double x1, double y1, double x2, double y2, double x3, double y3) {
-        double mint = 1 - t;
-        double x01 = x0 * mint + x1 * t;
-        double y01 = y0 * mint + y1 * t;
-        double x12 = x1 * mint + x2 * t;
-        double y12 = y1 * mint + y2 * t;
-        double x23 = x2 * mint + x3 * t;
-        double y23 = y2 * mint + y3 * t;
-
-        double out_c1x = x01 * mint + x12 * t;
-        double out_c1y = y01 * mint + y12 * t;
-        double out_c2x = x12 * mint + x23 * t;
-        double out_c2y = y12 * mint + y23 * t;
-        double out_x = out_c1x * mint + out_c2x * t;
-        double out_y = out_c1y * mint + out_c2y * t;
-        return new Point(out_x, out_y);
-    }
-
-    /**
-     * Calculate the length of the path. This is not the number of segments, but rather the sum of all segment lengths.
-     *
-     * @return the length of the path.
+     * @return the length horizontal the path.
      */
     public double getLength() {
-        if (lengthDirty) {
-            updateContourLengths();
+        return getLength(DEFAULT_CURVE_ACCURACY);
+    }
+
+    /**
+     * Calculate the length horizontal the path. This is not the number horizontal segments, but rather the sum horizontal all segment lengths.
+     *
+     * @return the length horizontal the path.
+     */
+    public double getLength(int n) {
+        // We call this just to get the path
+        computePathSegmentsAndLength(n);
+        if (pathLength < 0) {
+            throw new AssertionError("Path length calculation was not done, or done incorrectly.");
         }
         return pathLength;
     }
 
-    private void updateContourLengths() {
-        contourLengths = new ArrayList<Double>(contours.size());
-        pathLength = 0;
-        double length;
-        for (Contour c : contours) {
-            length = c.getLength();
-            contourLengths.add(length);
-            pathLength += length;
-        }
-        lengthDirty = false;
-    }
-
-    public Contour contourAt(double t) {
-        // Since t is relative, convert it to the absolute length.
-        double absT = t * getLength();
-
-        // Find the contour that contains t.
-        double cLength;
-        for (Contour c : contours) {
-            cLength = c.getLength();
-            if (absT <= cLength) return c;
-            absT -= cLength;
-        }
-        return null;
+    private List<PathSegment> getPathSegments(int n) {
+        computePathSegmentsAndLength(n);
+        return pathSegments;
     }
 
     /**
-     * Returns coordinates for point at t on the path.
+     * Calculate the path segments and path length.
      * <p/>
-     * Gets the length of the path, based on the length
-     * of each curve and line in the path.
+     * Segments do not correspond to path elements, but contain enough info to calculate a point on the segment.
+     *
+     * @param n The amount horizontal points to sample for curves. The more points, the more accurate the length.
+     * @return An immutable list horizontal path segments.
+     */
+    private void computePathSegmentsAndLength(int n) {
+        // If the user requests a different accuracy than we already have, we recompute the points.
+        if (pathSegments != null && curveAccuracy == n) {
+            return;
+        }
+        if (elements.isEmpty()) {
+            pathSegments = Collections.emptyList();
+            pathLength = 0;
+            curveAccuracy = n;
+            return;
+        }
+
+        ImmutableList.Builder<PathSegment> segments = ImmutableList.builder();
+        PathElement firstCommand = (PathElement) elements.get(0);
+        checkState(firstCommand.command == Command.MOVE_TO, "First command in path needs to be MOVETO.");
+        Point startPoint = null;
+        Point previousPoint = null;
+        double totalLength = 0;
+
+        for (Object o : elements) {
+            PathElement c = (PathElement) o;
+            if (c.getCommand() == Command.MOVE_TO) {
+                startPoint = c.point;
+            } else if (c.getCommand() == Command.LINE_TO) {
+                double length = lineLength(previousPoint, c.point);
+                segments.add(new PathSegment(previousPoint, PathSegmentType.LINE, c, length));
+                totalLength += length;
+            } else if (c.getCommand() == Command.CURVE_TO) {
+                double length = curveLength(previousPoint, c.control1, c.control2, c.point, n);
+                segments.add(new PathSegment(previousPoint, PathSegmentType.CURVE, c, length));
+                totalLength += length;
+            } else if (c.getCommand() == Command.CLOSE) {
+                double length = lineLength(previousPoint, startPoint);
+                segments.add(new PathSegment(previousPoint, PathSegmentType.LINE, PathElement.lineToCommand(startPoint), length));
+                totalLength += length;
+            }
+
+            previousPoint = c.point;
+        }
+
+        pathSegments = segments.build();
+        pathLength = totalLength;
+        curveAccuracy = n;
+    }
+
+    /**
+     * Calculate coordinates for point at t on the path.
+     * <p/>
+     * Gets the length horizontal the path, based on the length
+     * horizontal each curve and line in the path.
      * Determines in what segment t falls.
      * Gets the point on that segment.
      *
-     * @param t relative coordinate of the point (between 0.0 and 1.0)
-     *          Results outside of this range are undefined.
+     * @param t relative coordinate horizontal the point (between 0.0 and 1.0)
+     *          Results outside horizontal this range are clamped.
      * @return coordinates for point at t.
      */
     public Point pointAt(double t) {
-        double length = getLength();
-        // Since t is relative, convert it to the absolute length.
-        double absT = t * length;
-        // The resT is what remains of t after we traversed all segments.
-        double resT = t;
-        // Find the contour that contains t.
-        double cLength;
-        Contour currentContour = null;
-        for (Contour c : contours) {
-            currentContour = c;
-            cLength = c.getLength();
-            if (absT <= cLength) break;
-            absT -= cLength;
-            resT -= cLength / length;
+        double totalLength = getLength();
+        double absoluteT = totalLength * clamp(t);
+
+        for (PathSegment segment : getPathSegments(DEFAULT_CURVE_ACCURACY)) {
+            if (absoluteT <= segment.absoluteLength) {
+                double relativeT = absoluteT / segment.absoluteLength;
+                if (segment.type == PathSegmentType.LINE) {
+                    return linePoint(relativeT, segment.startPoint, segment.endCommand.point);
+                } else {
+                    return curvePoint(relativeT, segment.startPoint, segment.endCommand.control1, segment.endCommand.control2, segment.endCommand.point);
+                }
+            }
+            absoluteT -= segment.absoluteLength;
         }
-        if (currentContour == null) return new Point();
-        resT /= (currentContour.getLength() / length);
-        return currentContour.pointAt(resT);
+
+        return Point.ZERO;
     }
 
     /**
@@ -701,7 +609,7 @@ public class Path extends AbstractGeometry implements Colorizable, Iterable<Poin
      * <p/>
      * This method is here for compatibility with NodeBox 1.
      *
-     * @param t relative coordinate of the point.
+     * @param t relative coordinate horizontal the point.
      * @return coordinates for point at t.
      * @see #pointAt(double)
      */
@@ -709,456 +617,94 @@ public class Path extends AbstractGeometry implements Colorizable, Iterable<Poin
         return pointAt(t);
     }
 
-    //// Geometric operations ////
+    /**
+     * Calculate new points along the given path.
+     *
+     * @param amount The amount horizontal points to create.
+     * @return A list horizontal points.
+     */
+    public List<Point> makePoints(int amount) {
+        ImmutableList.Builder<Point> points = ImmutableList.builder();
+        double delta = amount <= 1 ? 0 : 1.0 / (amount - 1);
+        for (int i = 0; i < amount; i++) {
+            points.add(pointAt(i * delta));
+        }
+        return points.build();
+    }
 
     /**
-     * Make new points along the contours of the existing path.
-     * <p/>
-     * Points are evenly distributed according to the length of each contour.
+     * Create a new path where the curve is recreated using a given amount horizontal lines.
      *
-     * @param amount     the number of points to create.
-     * @param perContour if true, the amount of points is generated per contour, otherwise the amount
-     *                   is for the entire path.
-     * @return a list of Points.
+     * @param amount The amount horizontal lines to use.
+     * @return A new path.
      */
-    public Point[] makePoints(int amount, boolean perContour) {
-        if (perContour) {
-            Point[] points = new Point[amount * contours.size()];
-            int index = 0;
-            for (Contour c : contours) {
-                Point[] pointsFromContour = c.makePoints(amount);
-                System.arraycopy(pointsFromContour, 0, points, index, amount);
-                index += amount;
-            }
-            return points;
-        } else {
-            // Distribute all points evenly along the combined length of the contours.
-            double delta = pointDelta(amount, isClosed());
-            Point[] points = new Point[amount];
-            for (int i = 0; i < amount; i++) {
-                points[i] = pointAt(delta * i);
-            }
-            return points;
-        }
+    public Path resampleByAmount(int amount) {
+        return Path
+                .fromPoints(makePoints(amount), isClosed())
+                .fill(fill)
+                .stroke(stroke)
+                .strokeWidth(strokeWidth);
     }
 
-    public Path resampleByAmount(int amount, boolean perContour) {
-        if (perContour) {
-            Path p = cloneAndClear();
-            for (Contour c : contours) {
-                p.add(c.resampleByAmount(amount));
-            }
-            return p;
-        } else {
-            Path p = cloneAndClear();
-            double delta = pointDelta(amount, isClosed());
-            for (int i = 0; i < amount; i++) {
-                p.addPoint(pointAt(delta * i));
-            }
-            if (isClosed()) p.close();
-            return p;
-        }
-    }
-
+    /**
+     * Create a new path where the shape horizontal the path is recreated using lines horizontal the same length.
+     *
+     * @param segmentLength The maximum length horizontal each segment. Note that the last segment horizontal each contour can be shorter.
+     * @return A new path.
+     */
     public Path resampleByLength(double segmentLength) {
-        Path p = cloneAndClear();
-        for (Contour c : contours) {
-            p.add(c.resampleByLength(segmentLength));
+        ArrayList<PathElement> newCommands = new ArrayList<PathElement>();
+        for (Path c : getContours()) {
+            newCommands.addAll(c.resampleContourByLength(segmentLength));
         }
-        return p;
+        return elements(newCommands);
     }
 
-    public static Path findPath(java.util.List<Point> points) {
-        Point[] pts = new Point[points.size()];
-        points.toArray(pts);
-        return findPath(pts, 1);
-    }
+    private List<PathElement> resampleContourByLength(double segmentLength) {
+        int amount = (int) Math.ceil(getLength() / segmentLength);
+        double delta = amount <= 1 ? 0 : 1.0 / (amount - 1);
 
-    public static Path findPath(java.util.List<Point> points, double curvature) {
-        Point[] pts = new Point[points.size()];
-        points.toArray(pts);
-        return findPath(pts, curvature);
-    }
-
-    public static Path findPath(Point[] points) {
-        return findPath(points, 1);
+        ArrayList<PathElement> commands = new ArrayList<PathElement>(amount);
+        for (int i = 0; i < amount; i++) {
+            if (i == 0) {
+                commands.add(moveToCommand(pointAt(i * delta)));
+            } else {
+                commands.add(lineToCommand(pointAt(i * delta)));
+            }
+        }
+        if (isClosed()) {
+            commands.add(closeCommand());
+        }
+        return commands;
     }
 
     /**
-     * Constructs a path between the given list of points.
-     * </p>
-     * Interpolates the list of points and determines
-     * a smooth bezier path betweem them.
-     * Curvature is only useful if the path has more than  three points.
-     * </p>
-     *
-     * @param points    the points of which to construct the path from.
-     * @param curvature the smoothness of the generated path (0: straight, 1: smooth)
-     * @return a new Path.
+     * Check if the last element horizontal a Path is a CLOSE command.
      */
-    public static Path findPath(Point[] points, double curvature) {
-        if (points.length == 0) return null;
-        if (points.length == 1) {
-            Path path = new Path();
-            path.moveto(points[0].x, points[0].y);
-            return path;
-        }
-        if (points.length == 2) {
-            Path path = new Path();
-            path.moveto(points[0].x, points[0].y);
-            path.lineto(points[1].x, points[1].y);
-            return path;
-        }
-
-        // Zero curvature means straight lines.
-
-        curvature = Math.max(0, Math.min(1, curvature));
-        if (curvature == 0) {
-            Path path = new Path();
-            path.moveto(points[0].x, points[0].y);
-            for (Point point : points) path.lineto(point.x, point.y);
-            return path;
-        }
-
-        curvature = 4 + (1.0 - curvature) * 40;
-
-        HashMap<Integer, Double> dx, dy, bi, ax, ay;
-        dx = new HashMap<Integer, Double>();
-        dy = new HashMap<Integer, Double>();
-        bi = new HashMap<Integer, Double>();
-        ax = new HashMap<Integer, Double>();
-        ay = new HashMap<Integer, Double>();
-        dx.put(0, 0.0);
-        dx.put(points.length - 1, 0.0);
-        dy.put(0, 0.0);
-        dy.put(points.length - 1, 0.0);
-        bi.put(1, -0.25);
-        ax.put(1, (points[2].x - points[0].x - dx.get(0)) / 4);
-        ay.put(1, (points[2].y - points[0].y - dy.get(0)) / 4);
-
-        for (int i = 2; i < points.length - 1; i++) {
-            bi.put(i, -1 / (curvature + bi.get(i - 1)));
-            ax.put(i, -(points[i + 1].x - points[i - 1].x - ax.get(i - 1)) * bi.get(i));
-            ay.put(i, -(points[i + 1].y - points[i - 1].y - ay.get(i - 1)) * bi.get(i));
-        }
-
-        for (int i = points.length - 2; i >= 1; i--) {
-            dx.put(i, ax.get(i) + dx.get(i + 1) * bi.get(i));
-            dy.put(i, ay.get(i) + dy.get(i + 1) * bi.get(i));
-        }
-
-        Path path = new Path();
-        path.moveto(points[0].x, points[0].y);
-        for (int i = 0; i < points.length - 1; i++) {
-            path.curveto(points[i].x + dx.get(i),
-                    points[i].y + dy.get(i),
-                    points[i + 1].x - dx.get(i + 1),
-                    points[i + 1].y - dy.get(i + 1),
-                    points[i + 1].x,
-                    points[i + 1].y);
-        }
-
-        return path;
+    private boolean isClosed() {
+        if (elements.isEmpty()) return false;
+        PathElement lastCommand = (PathElement) elements.get(elements.size() - 1);
+        return lastCommand.command == Command.CLOSE;
     }
 
-
-    //// Geometric queries ////
-
-    public boolean contains(Point p) {
-        return getGeneralPath().contains(p.toPoint2D());
-    }
-
-    public boolean contains(double x, double y) {
-        return getGeneralPath().contains(x, y);
-    }
-
-    public boolean contains(Rect r) {
-        return getGeneralPath().contains(r.getRectangle2D());
-    }
-
-    //// Boolean operations ////
-
-    public boolean intersects(Rect r) {
-        return getGeneralPath().intersects(r.getRectangle2D());
-    }
-
-    public boolean intersects(Path p) {
-        Area a1 = new Area(getGeneralPath());
-        Area a2 = new Area(p.getGeneralPath());
-        a1.intersect(a2);
-        return !a1.isEmpty();
-    }
-
-    public Path intersected(Path p) {
-        Area a1 = new Area(getGeneralPath());
-        Area a2 = new Area(p.getGeneralPath());
-        a1.intersect(a2);
-        return new Path(a1);
-    }
-
-    public Path subtracted(Path p) {
-        Area a1 = new Area(getGeneralPath());
-        Area a2 = new Area(p.getGeneralPath());
-        a1.subtract(a2);
-        return new Path(a1);
-    }
-
-    public Path united(Path p) {
-        Area a1 = new Area(getGeneralPath());
-        Area a2 = new Area(p.getGeneralPath());
-        a1.add(a2);
-        return new Path(a1);
-    }
-
-    //// Path ////
-
-    public java.awt.geom.GeneralPath getGeneralPath() {
-        if (!pathDirty) return awtPath;
-        GeneralPath gp = new GeneralPath(GeneralPath.WIND_NON_ZERO, getPointCount());
-        for (Contour c : contours) {
-            c._extendPath(gp);
-        }
-        awtPath = gp;
-        pathDirty = false;
-        return gp;
-    }
-
-    public Rect getBounds() {
-        if (!pathDirty && bounds != null) return bounds;
-        if (isEmpty()) {
-            bounds = new Rect();
-        } else {
-            double minX = Double.MAX_VALUE;
-            double minY = Double.MAX_VALUE;
-            double maxX = -Double.MAX_VALUE;
-            double maxY = -Double.MAX_VALUE;
-            double px, py;
-            ArrayList<Point> points = (ArrayList<Point>) getPoints();
-            for (int i = 0; i < getPointCount(); i++) {
-                Point p = points.get(i);
-                if (p.getType() == Point.LINE_TO) {
-                    px = p.getX();
-                    py = p.getY();
-                    if (px < minX) minX = px;
-                    if (py < minY) minY = py;
-                    if (px > maxX) maxX = px;
-                    if (py > maxY) maxY = py;
-                } else if (p.getType() == Point.CURVE_TO) {
-                    Bezier b = new Bezier(points.get(i - 3), points.get(i - 2), points.get(i - 1), p);
-                    Rect r = b.extrema();
-                    double right = r.getX() + r.getWidth();
-                    double bottom = r.getY() + r.getHeight();
-                    if (r.getX() < minX) minX = r.getX();
-                    if (right > maxX) maxX = right;
-                    if (r.getY() < minY) minY = r.getY();
-                    if (bottom > maxY) maxY = bottom;
-                }
-            }
-            bounds = new Rect(minX, minY, maxX - minX, maxY - minY);
-        }
-        return bounds;
-    }
-
-    //// Transformations ////
-
-    public void transform(Transform t) {
-        for (Contour c : contours) {
-            c.setPoints(t.map(c.getPoints()));
-        }
-        invalidate(true);
-    }
-
-    //// Path math ////
+    private enum PathSegmentType {LINE, CURVE}
 
     /**
-     * Flatten the geometry.
+     * The path segment is an internal data structure that has all needed information to calculate a pointAt.
+     * It divides a path up in curves and lines, each with start and end points.
      */
-    public void flatten() {
-        throw new UnsupportedOperationException("Not implemented.");
-    }
+    private class PathSegment {
+        private final Point startPoint;
+        private final PathSegmentType type;
+        private final PathElement endCommand;
+        private final double absoluteLength;
 
-    /**
-     * Make a flattened copy of the geometry.
-     *
-     * @return a flattened copy.
-     */
-    public Path flattened() {
-        throw new UnsupportedOperationException("Not implemented.");
-    }
-
-    //// Operations on the current context. ////
-
-    public void draw(Graphics2D g) {
-        // If we can't fill or stroke the path, there's nothing to draw.
-        if (fillColor == null && strokeColor == null) return;
-        GeneralPath gp = getGeneralPath();
-        // If there are no points, there's nothing to draw.
-        if (getPointCount() == 0) return;
-        if (fillColor != null) {
-            g.setColor(fillColor.getAwtColor());
-            g.fill(gp);
+        private PathSegment(Point startPoint, PathSegmentType type, PathElement endCommand, double absoluteLength) {
+            this.startPoint = startPoint;
+            this.type = type;
+            this.endCommand = endCommand;
+            this.absoluteLength = absoluteLength;
         }
-        if (strokeWidth > 0 && strokeColor != null) {
-            try {
-                g.setColor(strokeColor.getAwtColor());
-                g.setStroke(new BasicStroke((float) strokeWidth));
-                g.draw(gp);
-            } catch (Exception e) {
-                // Invalid transformations can cause the pen to not display.
-                // Catch the exception and throw it away.
-                // The path would be too small to be displayed anyway.
-            }
-        }
-    }
-
-    public Path clone() {
-        return new Path(this);
-    }
-
-    public Path cloneAndClear() {
-        return new Path(this, false);
-    }
-
-    //// Functional operations ////
-
-    public AbstractGeometry mapPoints(Function<Point, Point> pointFunction) {
-        Path newPath = this.cloneAndClear();
-        for (Contour c : getContours()) {
-            Contour newContour = (Contour) c.mapPoints(pointFunction);
-            newPath.add(newContour);
-        }
-        return newPath;
-    }
-
-    //// Iterator implementation
-
-    public Iterator<Point> iterator() {
-        return getPoints().iterator();
-    }
-
-
-    private class Bezier {
-        private double x1, y1, x2, y2, x3, y3, x4, y4;
-        private double minx, maxx, miny, maxy;
-
-        public Bezier(Point p1, Point p2, Point p3, Point p4) {
-            x1 = p1.getX();
-            y1 = p1.getY();
-            x2 = p2.getX();
-            y2 = p2.getY();
-            x3 = p3.getX();
-            y3 = p3.getY();
-            x4 = p4.getX();
-            y4 = p4.getY();
-        }
-
-        private boolean fuzzyCompare(double p1, double p2) {
-            return Math.abs(p1 - p2) <= (0.000000000001 * Math.min(Math.abs(p1), Math.abs(p2)));
-        }
-
-        public Point pointAt(double t) {
-            double coeff[], a, b, c, d;
-            coeff = coefficients(t);
-            a = coeff[0];
-            b = coeff[1];
-            c = coeff[2];
-            d = coeff[3];
-            return new Point(a * x1 + b * x2 + c * x3 + d * x4, a * y1 + b * y2 + c * y3 + d * y4);
-        }
-
-        private double[] coefficients(double t) {
-            double m_t, a, b, c, d;
-            m_t = 1 - t;
-            b = m_t * m_t;
-            c = t * t;
-            d = c * t;
-            a = b * m_t;
-            b *= (3. * t);
-            c *= (3. * m_t);
-            return new double[]{a, b, c, d};
-        }
-
-        private void bezierCheck(double t) {
-            if (t >= 0 && t <= 1) {
-                Point p = pointAt(t);
-                if (p.getX() < minx) minx = p.getX();
-                else if (p.getX() > maxx) maxx = p.getX();
-                if (p.getY() < miny) miny = p.getY();
-                else if (p.getY() > maxy) maxy = p.getY();
-            }
-        }
-
-        public Rect extrema() {
-            double ax, bx, cx, ay, by, cy;
-
-            if (x1 < x4) {
-                minx = x1;
-                maxx = x4;
-            } else {
-                minx = x4;
-                maxx = x1;
-            }
-            if (y1 < y4) {
-                miny = y1;
-                maxy = y4;
-            } else {
-                miny = y4;
-                maxy = y1;
-            }
-
-            ax = 3 * (-x1 + 3 * x2 - 3 * x3 + x4);
-            bx = 6 * (x1 - 2 * x2 + x3);
-            cx = 3 * (-x1 + x2);
-
-            if (fuzzyCompare(ax + 1, 1)) {
-                if (!fuzzyCompare(bx + 1, 1)) {
-                    double t = -cx / bx;
-                    bezierCheck(t);
-                }
-            } else {
-                double tx = bx * bx - 4 * ax * cx;
-                if (tx >= 0) {
-                    double temp, rcp, t1, t2;
-                    temp = (double) Math.sqrt(tx);
-                    rcp = 1 / (2 * ax);
-                    t1 = (-bx + temp) * rcp;
-                    bezierCheck(t1);
-
-                    t2 = (-bx - temp) * rcp;
-                    bezierCheck(t2);
-                }
-            }
-
-            ay = 3 * (-y1 + 3 * y2 - 3 * y3 + y4);
-            by = 6 * (y1 - 2 * y2 + y3);
-            cy = 3 * (-y1 + y2);
-
-            if (fuzzyCompare(ay + 1, 1)) {
-                if (!fuzzyCompare(by + 1, 1)) {
-                    double t = -cy / by;
-                    bezierCheck(t);
-                }
-            } else {
-                double ty = by * by - 4 * ay * cy;
-                if (ty > 0) {
-                    double temp, rcp, t1, t2;
-                    temp = (double) Math.sqrt(ty);
-                    rcp = 1 / (2 * ay);
-                    t1 = (-by + temp) * rcp;
-                    bezierCheck(t1);
-
-                    t2 = (-by - temp) * rcp;
-                    bezierCheck(t2);
-                }
-            }
-
-            return new Rect(minx, miny, maxx - minx, maxy - miny);
-        }
-    }
-
-    @Override
-    public String toString() {
-        return "<Path>";
     }
 
 }

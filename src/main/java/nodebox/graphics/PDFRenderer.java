@@ -45,7 +45,7 @@ public class PDFRenderer {
         initialized = true;
     }
 
-    public static void render(Grob g, File file) {
+    public static void render(GraphicsElement g, File file) {
         initialize();
         Rect bounds = g.getBounds();
         Rectangle size = new Rectangle((float) bounds.getWidth(), (float) bounds.getHeight());

@@ -6,7 +6,9 @@ package nodebox.graphics;
  * @see GraphicsContext
  */
 public class NodeBoxError extends RuntimeException {
+
     public NodeBoxError(String message) {
         super(message);
     }
+
 }

@@ -10,23 +10,21 @@ public class TransformTest {
 
     @Test
     public void testTranslate() {
-        Transform t = new Transform();
-        t.translate(0, 0);
+        Transform t1 = Transform.IDENTITY;
         Point p = new Point(1, 2);
-        assertEquals(new Point(1, 2), t.map(p));
-        t.translate(0, 100);
-        assertEquals(new Point(1, 102), t.map(p));
-        t.translate(0, 100);
-        assertEquals(new Point(1, 202), t.map(p));
+        assertEquals(new Point(1, 2), t1.map(p));
+        Transform t2 = t1.translate(0, 100);
+        assertEquals(new Point(1, 102), t2.map(p));
+        Transform t3 = t2.translate(0, 100);
+        assertEquals(new Point(1, 202), t3.map(p));
     }
 
     @Test
     public void testMapPath() {
-        Path p = new Path();
-        p.addPoint(0, 0);
-        p.addPoint(10, 20);
-        Transform t = new Transform();
-        t.translate(10, 5);
+        Path p = Path.EMPTY
+                .moveTo(0, 0)
+                .lineTo(10, 20);
+        Transform t = Transform.translateTransform(10, 5);
         Path newPath = t.map(p);
 
         List<Point> oldPoints = p.getPoints();

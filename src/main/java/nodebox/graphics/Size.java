@@ -1,13 +1,15 @@
 package nodebox.graphics;
 
+import com.google.common.base.Objects;
+import com.google.common.collect.ImmutableList;
+
 import java.awt.geom.Dimension2D;
-import java.util.ArrayList;
 import java.util.Iterator;
-import java.util.List;
 
-public class Size implements Iterable {
+public final class Size implements Iterable {
 
-    private double width, height;
+    public static final Size EMPTY = new Size();
+    public final double width, height;
 
     public Size() {
         this(0, 0);
@@ -16,11 +18,6 @@ public class Size implements Iterable {
     public Size(double width, double height) {
         this.width = width;
         this.height = height;
-    }
-
-    public Size(Size sz) {
-        this.width = sz.width;
-        this.height = sz.height;
     }
 
     public Size(Dimension2D d) {
@@ -37,15 +34,38 @@ public class Size implements Iterable {
     }
 
     public Dimension2D getDimension2D() {
-        return new Dimension(width, height);
+        return new Dimension2D() {
+            @Override
+            public double getWidth() {
+                return width;
+            }
+
+            @Override
+            public double getHeight() {
+                return height;
+            }
+
+            @Override
+            public void setSize(double v, double v2) {
+                throw new UnsupportedOperationException("Size is immutable.");
+            }
+        };
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hashCode(width, height);
     }
 
     @Override
     public boolean equals(Object o) {
-        if (this == o) return true;
+        if (o == this) return true;
+        if (o == null) return false;
         if (!(o instanceof Size)) return false;
-        Size sz = (Size) o;
-        return width == sz.width && height == sz.height;
+
+        final Size other = (Size) o;
+        return Objects.equal(width, other.width)
+                && Objects.equal(height, other.height);
     }
 
     @Override
@@ -54,39 +74,7 @@ public class Size implements Iterable {
     }
 
     public Iterator<Double> iterator() {
-        List<Double> list = new ArrayList<Double>();
-        list.add(width);
-        list.add(height);
-        return list.iterator();
+        return ImmutableList.of(width, height).iterator();
     }
-
-    @Override
-    public Size clone() {
-        return new Size(this);
-    }
-
-    private class Dimension extends Dimension2D {
-        private double width;
-        private double height;
-
-        private Dimension(double width, double height) {
-            this.width = width;
-            this.height = height;
-        }
-
-        public double getWidth() {
-            return width;
-        }
-
-        public double getHeight() {
-            return height;
-        }
-
-        public void setSize(double width, double height) {
-            this.width = width;
-            this.height = height;
-        }
-    }
-
 
 }

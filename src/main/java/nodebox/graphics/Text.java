@@ -10,151 +10,48 @@ import java.awt.geom.Rectangle2D;
 import java.text.AttributedString;
 import java.util.Iterator;
 
-public class Text extends AbstractGrob {
+public class Text implements GraphicsElement {
 
-    public enum Align {
-        LEFT, RIGHT, CENTER, JUSTIFY
-    }
+    private final static String DEFAULT_FONT_NAME = "Helvetica";
+    private final static double DEFAULT_FONT_SIZE = 24;
+    private final static double DEFAULT_LINE_HEIGHT = 1.2;
+    private final static Align DEFAULT_ALIGN = Align.LEFT;
+    private final static Color DEFAULT_FILL_COLOR = Color.BLACK;
+    private final String text;
+    private final Point position;
+    private final double width;
+    private final String fontName;
+    private final double fontSize;
+    private final double lineHeight;
+    private final Align align;
+    private final Color fill;
+    private final Transform transform;
 
-    private String text;
-    private double baseLineX, baseLineY;
-    private double width = 0;
-    private double height = 0;
-    private String fontName = "Helvetica";
-    private double fontSize = 24;
-    private double lineHeight = 1.2;
-    private Align align = Align.CENTER;
-    private Color fillColor = new Color();
-
-    public Text(String text, Point pt) {
+    private Text(String text, Point position, double width, String fontName, double fontSize, double lineHeight, Align align, Color fill, Transform transform) {
         this.text = text;
-        this.baseLineX = pt.getX();
-        this.baseLineY = pt.getY();
-    }
-
-    public Text(String text, double baseLineX, double baseLineY) {
-        this.text = text;
-        this.baseLineX = baseLineX;
-        this.baseLineY = baseLineY;
-    }
-
-    public Text(String text, Rect r) {
-        this.text = text;
-        this.baseLineX = r.getX();
-        this.baseLineY = r.getY();
-        this.width = r.getWidth();
-        this.height = r.getHeight();
-    }
-
-    public Text(String text, double x, double y, double width, double height) {
-        this.text = text;
-        this.baseLineX = x;
-        this.baseLineY = y;
+        this.position = position;
         this.width = width;
-        this.height = height;
-    }
-
-    public Text(Text other) {
-        super(other);
-        this.text = other.text;
-        this.baseLineX = other.baseLineX;
-        this.baseLineY = other.baseLineY;
-        this.width = other.width;
-        this.height = other.height;
-        this.fontName = other.fontName;
-        this.fontSize = other.fontSize;
-        this.lineHeight = other.lineHeight;
-        this.align = other.align;
-        fillColor = other.fillColor == null ? null : other.fillColor.clone();
-    }
-
-    //// Getters/setters /////
-
-    public String getText() {
-        return text;
-    }
-
-    public void setText(String text) {
-        this.text = text;
-    }
-
-    public double getBaseLineX() {
-        return baseLineX;
-    }
-
-    public void setBaseLineX(double baseLineX) {
-        this.baseLineX = baseLineX;
-    }
-
-    public double getBaseLineY() {
-        return baseLineY;
-    }
-
-    public void setBaseLineY(double baseLineY) {
-        this.baseLineY = baseLineY;
-    }
-
-    public double getWidth() {
-        return width;
-    }
-
-    public void setWidth(double width) {
-        this.width = width;
-    }
-
-    public double getHeight() {
-        return height;
-    }
-
-    public void setHeight(double height) {
-        this.height = height;
-    }
-
-    public String getFontName() {
-        return fontName;
-    }
-
-    public void setFontName(String fontName) {
         this.fontName = fontName;
-    }
-
-    public double getFontSize() {
-        return fontSize;
-    }
-
-    public void setFontSize(double fontSize) {
         this.fontSize = fontSize;
-    }
-
-    public Font getFont() {
-        return new Font(fontName, Font.PLAIN, (int) fontSize);
-    }
-
-    public double getLineHeight() {
-        return lineHeight;
-    }
-
-    public void setLineHeight(double lineHeight) {
         this.lineHeight = lineHeight;
-    }
-
-    public Align getAlign() {
-        return align;
-    }
-
-    public void setAlign(Align align) {
         this.align = align;
+        this.fill = fill;
+        this.transform = transform;
     }
 
-    public Color getFillColor() {
-        return fillColor;
+    public static Text create(String text) {
+        return new Text(text, Point.ZERO, 0, DEFAULT_FONT_NAME, DEFAULT_FONT_SIZE, DEFAULT_LINE_HEIGHT, DEFAULT_ALIGN, DEFAULT_FILL_COLOR, Transform.IDENTITY);
     }
 
-    public void setFillColor(Color fillColor) {
-        this.fillColor = fillColor;
+    public static Text create(String text, Point position) {
+        return new Text(text, position, 0, DEFAULT_FONT_NAME, DEFAULT_FONT_SIZE, DEFAULT_LINE_HEIGHT, DEFAULT_ALIGN, DEFAULT_FILL_COLOR, Transform.IDENTITY);
     }
 
-    //// Font management ////
+    public static Text create(String text, double x, double y) {
+        return create(text, new Point(x, y));
+    }
+
+    //// Getters /////
 
     public static boolean fontExists(String fontName) {
         // TODO: Move getAllFonts() in static attribute.
@@ -168,7 +65,107 @@ public class Text extends AbstractGrob {
         return false;
     }
 
-    //// Metrics ////
+    public String getText() {
+        return text;
+    }
+
+    public Point getPosition() {
+        return position;
+    }
+
+    public double getX() {
+        return position.x;
+    }
+
+    public double getY() {
+        return position.y;
+    }
+
+    public double getWidth() {
+        return width;
+    }
+
+    public String getFontName() {
+        return fontName;
+    }
+
+    public double getFontSize() {
+        return fontSize;
+    }
+
+    public Font getFont() {
+        return new Font(fontName, Font.PLAIN, (int) fontSize);
+    }
+
+    public double getLineHeight() {
+        return lineHeight;
+    }
+
+    public Align getAlign() {
+        return align;
+    }
+
+    public Color getFill() {
+        return fill;
+    }
+
+    //// "Mutation" methods ////
+
+    public Transform getTransform() {
+        return transform;
+    }
+
+    public Text text(String text) {
+        return new Text(text, position, width, fontName, fontSize, lineHeight, align, fill, transform);
+    }
+
+    public Text position(Point position) {
+        return new Text(text, position, width, fontName, fontSize, lineHeight, align, fill, transform);
+    }
+
+    public Text x(double x) {
+        Point p = new Point(x, position.y);
+        return position(p);
+    }
+
+    public Text y(double y) {
+        Point p = new Point(position.x, y);
+        return position(p);
+    }
+
+    public Text width(double width) {
+        return new Text(text, position, width, fontName, fontSize, lineHeight, align, fill, transform);
+    }
+
+    public Text fontName(String fontName) {
+        return new Text(text, position, width, fontName, fontSize, lineHeight, align, fill, transform);
+    }
+
+    public Text fontSize(double fontSize) {
+        return new Text(text, position, width, fontName, fontSize, lineHeight, align, fill, transform);
+    }
+
+    public Text font(String fontName, double fontSize) {
+        return new Text(text, position, width, fontName, fontSize, lineHeight, align, fill, transform);
+    }
+
+    public Text lineHeight(double lineHeight) {
+        return new Text(text, position, width, fontName, fontSize, lineHeight, align, fill, transform);
+    }
+
+    public Text align(Align align) {
+        return new Text(text, position, width, fontName, fontSize, lineHeight, align, fill, transform);
+    }
+
+    public Text fillColor(Color fillColor) {
+        return new Text(text, position, width, fontName, fontSize, lineHeight, align, fillColor, transform);
+    }
+
+    public Text transform(Transform transform) {
+        return new Text(text, position, width, fontName, fontSize, lineHeight, align, fill, this.transform.concatenate(transform));
+    }
+
+    //// Font management ////
 
     private AttributedString getStyledText(String text) {
         // TODO: Find a better way to handle empty Strings (like for example paragraph line breaks)
@@ -176,8 +173,8 @@ public class Text extends AbstractGrob {
             text = " ";
         AttributedString attrString = new AttributedString(text);
         attrString.addAttribute(TextAttribute.FONT, getFont());
-        if (fillColor != null)
-            attrString.addAttribute(TextAttribute.FOREGROUND, fillColor.getAwtColor());
+        if (fill != null)
+            attrString.addAttribute(TextAttribute.FOREGROUND, fill.toAwtColor());
         if (align == Align.RIGHT) {
             //attrString.addAttribute(TextAttribute.RUN_DIRECTION, TextAttribute.RUN_DIRECTION_RTL);
         } else if (align == Align.CENTER) {
@@ -187,6 +184,8 @@ public class Text extends AbstractGrob {
         }
         return attrString;
     }
+
+    //// Metrics ////
 
     public Rect getMetrics() {
         if (text == null || text.length() == 0) return new Rect();
@@ -202,37 +201,31 @@ public class Text extends AbstractGrob {
 
     //// Transformations ////
 
-    protected void setupTransform(Graphics2D g) {
-        saveTransform(g);
-        AffineTransform trans = g.getTransform();
-        trans.concatenate(getTransform().getAffineTransform());
-        g.setTransform(trans);
-    }
-
     public void draw(Graphics2D g) {
-        if (fillColor == null) return;
-        setupTransform(g);
+        if (fill == null) return;
+        AffineTransform savedTransform = new AffineTransform(g.getTransform());
+        g.getTransform().concatenate(transform.getAffineTransform());
         if (text == null || text.length() == 0) return;
         TextLayoutIterator iterator = new TextLayoutIterator();
         while (iterator.hasNext()) {
             TextLayout layout = iterator.next();
-            layout.draw(g, (float) (baseLineX + iterator.getX()), (float) (baseLineY + iterator.getY()));
+            layout.draw(g, (float) (getX() + iterator.getX()), (float) (getY() + iterator.getY()));
         }
-        restoreTransform(g);
+        g.setTransform(savedTransform);
     }
 
     public Path getPath() {
-        Path p = new Path();
-        p.setFillColor(fillColor == null ? null : fillColor.clone());
+        Path p = Path.EMPTY;
+        p = p.fill(fill == null ? null : fill);
         TextLayoutIterator iterator = new TextLayoutIterator();
         while (iterator.hasNext()) {
             TextLayout layout = iterator.next();
             AffineTransform trans = new AffineTransform();
-            trans.translate(baseLineX + iterator.getX(), baseLineY + iterator.getY());
-            Shape shape = layout.getOutline(trans);
-            p.extend(shape);
+            trans.translate(getX() + iterator.getX(), getY() + iterator.getY());
+            java.awt.Shape shape = layout.getOutline(trans);
+            p = p.extend(shape);
         }
-        p.transform(getTransform());
+        p = p.transform(getTransform());
         return p;
     }
 
@@ -245,8 +238,8 @@ public class Text extends AbstractGrob {
         return getPath().getBounds();
     }
 
-    public Text clone() {
-        return new Text(this);
+    public enum Align {
+        LEFT, RIGHT, CENTER, JUSTIFY
     }
 
     private class TextLayoutIterator implements Iterator<TextLayout> {
@@ -334,4 +327,5 @@ public class Text extends AbstractGrob {
             throw new AssertionError("This operation is not implemented");
         }
     }
+
 }

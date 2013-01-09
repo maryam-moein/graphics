@@ -1,54 +1,38 @@
-/*
- * This file is part of NodeBox.
- *
- * Copyright (C) 2008 Frederik De Bleser (frederik@pandora.be)
- *
- * NodeBox is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * NodeBox is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with NodeBox. If not, see <http://www.gnu.org/licenses/>.
- */
 package nodebox.graphics;
 
 import com.google.common.base.Objects;
-import com.google.common.collect.ImmutableList;
 
 import java.awt.geom.Rectangle2D;
-import java.util.Iterator;
 
-public class Rect implements Iterable {
+/**
+ * Represents a rectangle.
+ */
+public final class Rect {
 
-    public static Rect centeredRect(double cx, double cy, double width, double height) {
-        return new Rect(cx - width / 2, cy - height / 2, width, height);
-    }
-
-    public static Rect centeredRect(Rect r) {
-        return centeredRect(r.getX(), r.getY(), r.getWidth(), r.getHeight());
-    }
-
-    public static Rect corneredRect(double cx, double cy, double width, double height) {
-        return new Rect(cx + width / 2, cy + height / 2, width, height);
-    }
-
-    public static Rect corneredRect(Rect r) {
-        return corneredRect(r.getX(), r.getY(), r.getWidth(), r.getHeight());
-    }
-
+    public static final Rect EMPTY = new Rect(0, 0, 0, 0);
     public final double x, y, width, height;
 
     public Rect() {
         this(0, 0, 0, 0);
     }
 
+    /**
+     * Construct a new Rect. Rects with negative width or height are automatically normalized.
+     *
+     * @param x
+     * @param y
+     * @param width
+     * @param height
+     */
     public Rect(double x, double y, double width, double height) {
+        if (width < 0) {
+            x += width;
+            width = -width;
+        }
+        if (height < 0) {
+            y += height;
+            height = -height;
+        }
         this.x = x;
         this.y = y;
         this.width = width;
@@ -61,6 +45,10 @@ public class Rect implements Iterable {
 
     public Rect(java.awt.geom.Rectangle2D r) {
         this(r.getX(), r.getY(), r.getWidth(), r.getHeight());
+    }
+
+    public static Rect centered(double cx, double cy, double width, double height) {
+        return new Rect(cx - width / 2, cy - height / 2, width, height);
     }
 
     public double getHeight() {
@@ -84,63 +72,41 @@ public class Rect implements Iterable {
     }
 
     public boolean isEmpty() {
-        Rect n = normalized();
-        return n.width <= 0 || n.height <= 0;
-    }
-
-    public Rect normalized() {
-        double x = this.x;
-        double y = this.y;
-        double width = this.width;
-        double height = this.height;
-
-
-        if (width < 0) {
-            x += width;
-            width = -width;
-        }
-        if (height < 0) {
-            y += height;
-            height = -height;
-        }
-        return new Rect(x, y, width, height);
+        return this.width <= 0 || this.height <= 0;
     }
 
     public Rect united(Rect r) {
-        Rect r1 = normalized();
-        Rect r2 = r.normalized();
-
         double x, y, width, height;
-        x = Math.min(r1.x, r2.x);
-        y = Math.min(r1.y, r2.y);
-        width = Math.max(r1.x + r1.width, r2.x + r2.width) - x;
-        height = Math.max(r1.y + r1.height, r2.y + r2.height) - y;
+        x = Math.min(this.x, r.x);
+        y = Math.min(this.y, r.y);
+        width = Math.max(this.x + this.width, r.x + r.width) - x;
+        height = Math.max(this.y + this.height, r.y + r.height) - y;
         return new Rect(x, y, width, height);
     }
 
     public boolean intersects(Rect r) {
-        Rect r1 = normalized();
-        Rect r2 = r.normalized();
-        return Math.max(r1.x, r1.y) < Math.min(r1.x + r1.width, r2.width) &&
-                Math.max(r1.y, r2.y) < Math.min(r1.y + r1.height, r2.y + r2.height);
+        return Math.max(this.x, this.y) < Math.min(this.x + this.width, r.width) &&
+                Math.max(this.y, r.y) < Math.min(this.y + this.height, r.y + r.height);
+    }
+
+    public boolean contains(double x, double y) {
+        return x >= this.x && x <= this.x + this.width &&
+                y >= this.y && y <= this.y + this.height;
     }
 
     public boolean contains(Point p) {
-        Rect r = normalized();
-        return p.getX() >= r.x && p.getX() <= r.x + r.width &&
-                p.getY() >= r.y && p.getY() <= r.y + r.height;
+        return contains(p.x, p.y);
     }
 
     public boolean contains(Rect r) {
-        Rect r1 = normalized();
-        Rect r2 = r.normalized();
-        return r2.x >= r1.x && r2.x + r2.width <= r1.x + r1.width &&
-                r2.y >= r1.y && r2.y + r2.height <= r1.y + r1.height;
+        return r.x >= this.x && r.x + r.width <= this.x + this.width &&
+                r.y >= this.y && r.y + r.height <= this.y + this.height;
     }
 
     @Override
     public boolean equals(Object o) {
         if (!(o instanceof Rect)) return false;
+
         final Rect other = (Rect) o;
         return Objects.equal(x, other.x)
                 && Objects.equal(y, other.y)
@@ -158,12 +124,8 @@ public class Rect implements Iterable {
         return "Rect(" + x + ", " + y + ", " + width + ", " + height + ")";
     }
 
-    public Rectangle2D getRectangle2D() {
+    public Rectangle2D toRectangle2D() {
         return new Rectangle2D.Double(x, y, width, height);
-    }
-
-    public Iterator<Double> iterator() {
-        return ImmutableList.<Double>of(x, y, width, height).iterator();
     }
 
 }
