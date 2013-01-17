@@ -2,6 +2,15 @@ NodeBox Graphics
 ================
 Graphics is the graphical engine powering NodeBox.
 
+Using it in your projects
+=========================
+NodeBox Graphics is available in the [Maven](http://maven.apache.org/) Central Repository. Add the following to your `pom.xml` file:
+
+    <dependency>
+        <groupId>net.nodebox</groupId>
+        <artifactId>graphics</artifactId>
+        <version>3.0.0</version>
+    </dependency>
 
 Release on the Central Repository
 =================================
