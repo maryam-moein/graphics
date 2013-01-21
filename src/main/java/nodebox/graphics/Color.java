@@ -11,7 +11,13 @@ import static nodebox.graphics.Geometry.clamp;
 public final class Color implements Cloneable {
 
     public static final Color BLACK = new Color(0, 0, 0, 1);
+    public static final Color BLUE = new Color(0, 0, 1, 1);
+    public static final Color CYAN = new Color(0, 1, 1, 1);
+    public static final Color GREEN = new Color(0, 1, 0, 1);
+    public static final Color MAGENTA = new Color(1, 0, 1, 1);
+    public static final Color RED = new Color(1, 0, 0, 1);
     public static final Color WHITE = new Color(1, 1, 1, 1);
+    public static final Color YELLOW = new Color(1, 1, 0, 1);
     public static final Color TRANSPARENT = new Color(0, 0, 0, 0);
     private static final Pattern HEX_STRING_PATTERN = Pattern.compile("^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})?$");
     public final double r, g, b, a;
