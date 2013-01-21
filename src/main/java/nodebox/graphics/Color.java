@@ -8,7 +8,7 @@ import java.util.regex.Pattern;
 
 import static nodebox.graphics.Geometry.clamp;
 
-public final class Color implements Cloneable {
+public final class Color {
 
     public static final Color BLACK = new Color(0, 0, 0, 1);
     public static final Color BLUE = new Color(0, 0, 1, 1);
