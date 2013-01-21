@@ -52,6 +52,20 @@ public class Transform {
         return new Point(out[0], out[1]);
     }
 
+    public PathElement map(PathElement e) {
+        if (this == IDENTITY) return e;
+        if (e.command == PathElement.Command.CLOSE) return e;
+
+        Point pt = map(e.point);
+        Point c1 = e.control1;
+        Point c2 = e.control2;
+        if (e.command == PathElement.Command.CURVE_TO) {
+            c1 = map(c1);
+            c2 = map(c2);
+        }
+        return new PathElement(e.command, pt, c1, c2);
+    }
+
     public Path map(Path p) {
         if (this == IDENTITY) return p;
         GeneralPath newPath = p.toGeneralPath();

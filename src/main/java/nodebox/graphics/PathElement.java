@@ -12,34 +12,34 @@ public class PathElement {
     public final Point control1;
     public final Point control2;
 
-    private PathElement(Command command, Point point, Point control1, Point control2) {
+    PathElement(Command command, Point point, Point control1, Point control2) {
         this.command = command;
         this.point = point;
         this.control1 = control1;
         this.control2 = control2;
     }
 
-    public static PathElement moveToCommand(Point point) {
+    public static PathElement moveToElement(Point point) {
         return new PathElement(Command.MOVE_TO, point, ZERO, ZERO);
     }
 
-    public static PathElement moveToCommand(double x, double y) {
+    public static PathElement moveToElement(double x, double y) {
         return new PathElement(Command.MOVE_TO, new Point(x, y), ZERO, ZERO);
     }
 
-    public static PathElement lineToCommand(Point point) {
+    public static PathElement lineToElement(Point point) {
         return new PathElement(Command.LINE_TO, point, ZERO, ZERO);
     }
 
-    public static PathElement lineToCommand(double x, double y) {
+    public static PathElement lineToElement(double x, double y) {
         return new PathElement(Command.LINE_TO, new Point(x, y), ZERO, ZERO);
     }
 
-    public static PathElement curveToCommand(double c1x, double c1y, double c2x, double c2y, double x, double y) {
+    public static PathElement curveToElement(double c1x, double c1y, double c2x, double c2y, double x, double y) {
         return new PathElement(Command.CURVE_TO, new Point(x, y), new Point(c1x, c1y), new Point(c2x, c2y));
     }
 
-    public static PathElement closeCommand() {
+    public static PathElement closeElement() {
         return CLOSE_ELEMENT;
     }
 

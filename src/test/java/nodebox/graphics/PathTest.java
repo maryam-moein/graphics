@@ -1,5 +1,6 @@
 package nodebox.graphics;
 
+import com.google.common.base.Function;
 import org.junit.Test;
 
 import java.util.List;
@@ -15,12 +16,21 @@ public class PathTest {
     public void testEmptyPath() {
         Path p = Path.EMPTY;
         assertEquals(0, p.getElements().size());
+        assertEquals(0, p.count());
+    }
+
+    @Test
+    public void testMakeRect() {
+        Path p = Path.EMPTY.rect(10, 20, 30, 40);
+        assertEquals(new Rect(10, 20, 30, 40), p.getBounds());
+        assertEquals(5, p.count());
     }
 
     @Test
     public void testMakeEllipse() {
         Path p = Path.EMPTY.ellipse(10, 20, 30, 40);
         assertEquals(new Rect(10, 20, 30, 40), p.getBounds());
+        assertEquals(6, p.count());
     }
 
     @Test
@@ -28,6 +38,47 @@ public class PathTest {
         Path p = Path.EMPTY.rect(10, 20, 30, 40);
         Path p2 = p.translate(5, 0);
         assertEquals(new Rect(15, 20, 30, 40), p2.getBounds());
+    }
+
+    @Test
+    public void testGetTranslatedElements() {
+        Path p = Path.EMPTY.rect(10, 20, 30, 40);
+        List<PathElement> elements = p.getElements();
+        assertEquals(PathElement.moveToElement(10, 20), elements.get(0));
+        assertEquals(PathElement.lineToElement(40, 20), elements.get(1));
+        assertEquals(PathElement.lineToElement(40, 60), elements.get(2));
+        assertEquals(PathElement.lineToElement(10, 60), elements.get(3));
+        assertEquals(PathElement.closeElement(), elements.get(4));
+
+        Path p2 = p.transform(Transform.translateTransform(100, 200));
+        elements = p2.getElements();
+        assertEquals(PathElement.moveToElement(110, 220), elements.get(0));
+        assertEquals(PathElement.lineToElement(140, 220), elements.get(1));
+        assertEquals(PathElement.lineToElement(140, 260), elements.get(2));
+        assertEquals(PathElement.lineToElement(110, 260), elements.get(3));
+        assertEquals(PathElement.closeElement(), elements.get(4));
+
+        Path p3 = p2.untransformed();
+        assertEquals(p, p3);
+        elements = p3.getElements();
+        assertEquals(PathElement.moveToElement(10, 20), elements.get(0));
+    }
+
+    @Test
+    public void testGetTranslatedPoints() {
+        Path p = Path.EMPTY.rect(10, 20, 30, 40);
+        List<Point> points = p.getPoints();
+        assertPointEquals(10, 20, points.get(0));
+        assertPointEquals(40, 20, points.get(1));
+        assertPointEquals(40, 60, points.get(2));
+        assertPointEquals(10, 60, points.get(3));
+
+        Path p2 = p.transform(Transform.translateTransform(100, 200));
+        points = p2.getPoints();
+        assertPointEquals(110, 220, points.get(0));
+        assertPointEquals(140, 220, points.get(1));
+        assertPointEquals(140, 260, points.get(2));
+        assertPointEquals(110, 260, points.get(3));
     }
 
     @Test
@@ -49,6 +100,35 @@ public class PathTest {
         Path p = Path.EMPTY.rect(10, 20, 30, 40);
         Path p2 = p.transform(Transform.translateTransform(5, 7));
         assertEquals(new Rect(15, 27, 30, 40), p2.getBounds());
+    }
+
+    @Test
+    public void testTransformedExtend() {
+        Path p1 = Path.EMPTY.moveTo(0, 0);
+        Path p2 = Path.EMPTY.lineTo(30, 40);
+        Path p3 = p1.extend(p2);
+        assertEquals(new Rect(0, 0, 30, 40), p3.getBounds());
+
+        Path p4 = p2.translate(100, 200);
+        Path p5 = p1.extend(p4);
+        assertEquals(new Rect(0, 0, 130, 240), p5.getBounds());
+    }
+
+    @Test
+    public void testMapElements() {
+        Function<PathElement, PathElement> moveALittle = new Function<PathElement, PathElement>() {
+            @Override
+            public PathElement apply(PathElement input) {
+                return input.translate(1, 2);
+            }
+        };
+        Path p1 = Path.EMPTY.rect(10, 20, 30, 40);
+        Path p2 = p1.mapElements(moveALittle);
+        assertEquals(new Rect(11, 22, 30, 40), p2.getBounds());
+
+        Path tp1 = p1.translate(100, 200);
+        Path tp2 = tp1.mapElements(moveALittle);
+        assertEquals(new Rect(111, 222, 30, 40), tp2.getBounds());
     }
 
     /**
@@ -103,6 +183,17 @@ public class PathTest {
         assertPointEquals(75, 0, p.pointAt(0.75));
         assertPointEquals(80, 0, p.pointAt(0.8));
         assertPointEquals(100, 0, p.pointAt(1));
+    }
+
+    @Test
+    public void testTransformedPointAt() {
+        Path p = Path.EMPTY
+                .line(0, 0, 50, 0)
+                .line(50, 0, 100, 0)
+                .translate(100, 200);
+        assertPointEquals(100, 200, p.pointAt(0.0));
+        assertPointEquals(150, 200, p.pointAt(0.5));
+        assertPointEquals(200, 200, p.pointAt(1.0));
     }
 
     @Test

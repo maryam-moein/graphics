@@ -2,6 +2,7 @@ package nodebox.graphics;
 
 import clojure.lang.PersistentVector;
 import com.google.common.base.Function;
+import com.google.common.base.Objects;
 import com.google.common.collect.ImmutableList;
 
 import java.awt.*;
@@ -17,9 +18,10 @@ import static nodebox.graphics.PathElement.*;
 
 public final class Path implements Shape {
 
-    public static final Path EMPTY = new Path(Collections.<PathElement>emptyList(), Color.BLACK, null, 0);
+    public static final Path EMPTY = new Path(Collections.<PathElement>emptyList(), Transform.IDENTITY, Color.BLACK, null, 0);
     public static final int DEFAULT_CURVE_ACCURACY = 20;
     private final PersistentVector elements;
+    private final Transform transform;
     private final Color fill;
     private final Color stroke;
     private final double strokeWidth;
@@ -27,8 +29,9 @@ public final class Path implements Shape {
     private transient double pathLength = -1;
     private transient List<PathSegment> pathSegments;
 
-    private Path(List<PathElement> elements, Color fill, Color stroke, double strokeWidth) {
+    private Path(List<PathElement> elements, Transform transform, Color fill, Color stroke, double strokeWidth) {
         this.elements = PersistentVector.create(elements);
+        this.transform = transform;
         this.fill = fill;
         this.stroke = stroke;
         this.strokeWidth = strokeWidth;
@@ -53,11 +56,11 @@ public final class Path implements Shape {
             if (cmd == PathIterator.SEG_MOVETO) {
                 px = points[0];
                 py = points[1];
-                commands.add(moveToCommand(px, py));
+                commands.add(moveToElement(px, py));
             } else if (cmd == PathIterator.SEG_LINETO) {
                 px = points[0];
                 py = points[1];
-                commands.add(lineToCommand(px, py));
+                commands.add(lineToElement(px, py));
             } else if (cmd == PathIterator.SEG_QUADTO) {
                 // Convert the quadratic bézier to a cubic bézier.
                 double c1x = px + (points[0] - px) * 2 / 3;
@@ -66,20 +69,20 @@ public final class Path implements Shape {
                 double c2y = points[1] + (points[3] - points[1]) / 3;
                 px = points[2];
                 py = points[3];
-                commands.add(curveToCommand(c1x, c1y, c2x, c2y, px, py));
+                commands.add(curveToElement(c1x, c1y, c2x, c2y, px, py));
             } else if (cmd == PathIterator.SEG_CUBICTO) {
                 px = points[4];
                 py = points[5];
-                commands.add(curveToCommand(points[0], points[1], points[2], points[3], px, py));
+                commands.add(curveToElement(points[0], points[1], points[2], points[3], px, py));
             } else if (cmd == PathIterator.SEG_CLOSE) {
                 px = py = 0;
-                commands.add(closeCommand());
+                commands.add(closeElement());
             } else {
                 throw new AssertionError("Unknown path command " + cmd);
             }
             iterator.next();
         }
-        return new Path(commands, fill, stroke, strokeWidth);
+        return new Path(commands, Transform.IDENTITY, fill, stroke, strokeWidth);
     }
 
     public static Path fromPoints(List<Point> points, boolean closed) {
@@ -200,17 +203,24 @@ public final class Path implements Shape {
 
     @SuppressWarnings("unchecked")
     public List<PathElement> getElements() {
-        return elements;
+        if (transform == Transform.IDENTITY) return elements;
+        ImmutableList.Builder<PathElement> b = ImmutableList.builder();
+        for (Object o : elements) {
+            PathElement e = (PathElement) o;
+            b.add(transform.map(e));
+        }
+        return b.build();
     }
 
     public List<Point> getPoints() {
         ImmutableList.Builder<Point> points = ImmutableList.builder();
         for (Object o : elements) {
-            PathElement c = (PathElement) o;
-            if (c.getCommand() == Command.CLOSE) {
+            PathElement e = (PathElement) o;
+            if (e.getCommand() == Command.CLOSE) {
                 continue;
             }
-            points.add(c.point);
+            Point pt = transform.map(e.point);
+            points.add(pt);
         }
         return points.build();
     }
@@ -220,21 +230,21 @@ public final class Path implements Shape {
         Path currentContour = Path.EMPTY;
         boolean empty = true;
         for (Object o : elements) {
-            PathElement c = (PathElement) o;
-            if (c.command == Command.MOVE_TO) {
+            PathElement e = (PathElement) o;
+            if (e.command == Command.MOVE_TO) {
                 if (!empty) {
                     contours.add(currentContour);
                 }
-                currentContour = Path.EMPTY.addCommand(c);
+                currentContour = Path.EMPTY.addCommand(transform.map(e));
                 empty = true;
-            } else if (c.command == Command.LINE_TO) {
+            } else if (e.command == Command.LINE_TO) {
                 empty = false;
-                currentContour = currentContour.addCommand(c);
-            } else if (c.command == Command.CURVE_TO) {
+                currentContour = currentContour.addCommand(transform.map(e));
+            } else if (e.command == Command.CURVE_TO) {
                 empty = false;
-                currentContour = currentContour.addCommand(c);
-            } else if (c.command == Command.CLOSE) {
-                currentContour = currentContour.addCommand(c);
+                currentContour = currentContour.addCommand(transform.map(e));
+            } else if (e.command == Command.CLOSE) {
+                currentContour = currentContour.addCommand(e);
             }
         }
         if (!empty) {
@@ -347,17 +357,17 @@ public final class Path implements Shape {
     public GeneralPath toGeneralPath() {
         GeneralPath gp = new GeneralPath();
         for (Object o : elements) {
-            PathElement c = (PathElement) o;
-            if (c.command == Command.MOVE_TO) {
-                gp.moveTo(c.point.x, c.point.y);
-            } else if (c.command == Command.LINE_TO) {
-                gp.lineTo(c.point.x, c.point.y);
-            } else if (c.command == Command.CURVE_TO) {
-                gp.curveTo(c.control1.x, c.control1.y, c.control2.x, c.control2.y, c.point.x, c.point.y);
-            } else if (c.command == Command.CLOSE) {
+            PathElement e = transform.map((PathElement) o);
+            if (e.command == Command.MOVE_TO) {
+                gp.moveTo(e.point.x, e.point.y);
+            } else if (e.command == Command.LINE_TO) {
+                gp.lineTo(e.point.x, e.point.y);
+            } else if (e.command == Command.CURVE_TO) {
+                gp.curveTo(e.control1.x, e.control1.y, e.control2.x, e.control2.y, e.point.x, e.point.y);
+            } else if (e.command == Command.CLOSE) {
                 gp.closePath();
             } else {
-                throw new AssertionError("Unknown command " + c.command);
+                throw new AssertionError("Unknown command " + e.command);
             }
         }
         return gp;
@@ -382,7 +392,7 @@ public final class Path implements Shape {
     }
 
     public Path moveTo(double x, double y) {
-        return elements(elements.cons(moveToCommand(x, y)));
+        return elements(elements.cons(moveToElement(x, y)));
     }
 
     public Path lineTo(Point p) {
@@ -390,7 +400,7 @@ public final class Path implements Shape {
     }
 
     public Path lineTo(double x, double y) {
-        return elements(elements.cons(lineToCommand(x, y)));
+        return elements(elements.cons(lineToElement(x, y)));
     }
 
     public Path curveTo(Point p0, Point p1, Point p2) {
@@ -398,11 +408,11 @@ public final class Path implements Shape {
     }
 
     public Path curveTo(double c1x, double c1y, double c2x, double c2y, double x, double y) {
-        return elements(elements.cons(curveToCommand(c1x, c1y, c2x, c2y, x, y)));
+        return elements(elements.cons(curveToElement(c1x, c1y, c2x, c2y, x, y)));
     }
 
     public Path close() {
-        return elements(elements.cons(closeCommand()));
+        return elements(elements.cons(closeElement()));
     }
 
     public Path addCommand(PathElement c) {
@@ -413,10 +423,10 @@ public final class Path implements Shape {
         return extend(p.getElements());
     }
 
-    public Path extend(List<PathElement> commands) {
-        ArrayList<PathElement> newCommands = new ArrayList<PathElement>(this.elements.size() + commands.size());
+    public Path extend(List<PathElement> elements) {
+        ArrayList<PathElement> newCommands = new ArrayList<PathElement>(this.elements.size() + elements.size());
         newCommands.addAll(this.elements);
-        newCommands.addAll(commands);
+        newCommands.addAll(elements);
         return elements(newCommands);
     }
 
@@ -435,39 +445,44 @@ public final class Path implements Shape {
 
     //// Mapping operations ////
 
-    public Path mapCommands(Function<PathElement, PathElement> fn) {
-        ArrayList<PathElement> newCommands = new ArrayList<PathElement>();
+    public Path mapElements(Function<PathElement, PathElement> fn) {
+        ArrayList<PathElement> newElements = new ArrayList<PathElement>();
         for (Object o : elements) {
-            PathElement c = (PathElement) o;
-            PathElement newCommand = fn.apply(c);
-            newCommands.add(newCommand);
+            PathElement e = (PathElement) o;
+            PathElement newElement = fn.apply(e);
+            newElements.add(newElement);
         }
-        return elements(newCommands);
+        return elements(newElements);
     }
 
 
     //// "Mutation" methods ////
 
     private Path elements(List<PathElement> elements) {
-        return new Path(elements, fill, stroke, strokeWidth);
+        return new Path(elements, transform, fill, stroke, strokeWidth);
     }
 
     public Path fill(Color fill) {
-        return new Path(elements, fill, stroke, strokeWidth);
+        return new Path(elements, transform, fill, stroke, strokeWidth);
     }
 
     public Path stroke(Color stroke) {
-        return new Path(elements, fill, stroke, strokeWidth);
+        return new Path(elements, transform, fill, stroke, strokeWidth);
     }
 
     public Path strokeWidth(double strokeWidth) {
-        return new Path(elements, fill, stroke, strokeWidth);
+        return new Path(elements, transform, fill, stroke, strokeWidth);
     }
 
     //// Transformation ////
 
     public Path transform(Transform t) {
-        return t.map(this);
+        Transform newTransform = transform.concatenate(t);
+        return new Path(elements, newTransform, fill, stroke, strokeWidth);
+    }
+
+    public Path untransformed() {
+        return new Path(elements, Transform.IDENTITY, fill, stroke, strokeWidth);
     }
 
     public Path translate(double tx, double ty) {
@@ -541,31 +556,31 @@ public final class Path implements Shape {
         }
 
         ImmutableList.Builder<PathSegment> segments = ImmutableList.builder();
-        PathElement firstCommand = (PathElement) elements.get(0);
+        PathElement firstCommand = transform.map((PathElement) elements.get(0));
         checkState(firstCommand.command == Command.MOVE_TO, "First command in path needs to be MOVETO.");
         Point startPoint = null;
         Point previousPoint = null;
         double totalLength = 0;
 
         for (Object o : elements) {
-            PathElement c = (PathElement) o;
-            if (c.getCommand() == Command.MOVE_TO) {
-                startPoint = c.point;
-            } else if (c.getCommand() == Command.LINE_TO) {
-                double length = lineLength(previousPoint, c.point);
-                segments.add(new PathSegment(previousPoint, PathSegmentType.LINE, c, length));
+            PathElement e = transform.map((PathElement) o);
+            if (e.getCommand() == Command.MOVE_TO) {
+                startPoint = e.point;
+            } else if (e.getCommand() == Command.LINE_TO) {
+                double length = lineLength(previousPoint, e.point);
+                segments.add(new PathSegment(previousPoint, PathSegmentType.LINE, e, length));
                 totalLength += length;
-            } else if (c.getCommand() == Command.CURVE_TO) {
-                double length = curveLength(previousPoint, c.control1, c.control2, c.point, n);
-                segments.add(new PathSegment(previousPoint, PathSegmentType.CURVE, c, length));
+            } else if (e.getCommand() == Command.CURVE_TO) {
+                double length = curveLength(previousPoint, e.control1, e.control2, e.point, n);
+                segments.add(new PathSegment(previousPoint, PathSegmentType.CURVE, e, length));
                 totalLength += length;
-            } else if (c.getCommand() == Command.CLOSE) {
+            } else if (e.getCommand() == Command.CLOSE) {
                 double length = lineLength(previousPoint, startPoint);
-                segments.add(new PathSegment(previousPoint, PathSegmentType.LINE, PathElement.lineToCommand(startPoint), length));
+                segments.add(new PathSegment(previousPoint, PathSegmentType.LINE, PathElement.lineToElement(startPoint), length));
                 totalLength += length;
             }
 
-            previousPoint = c.point;
+            previousPoint = e.point;
         }
 
         pathSegments = segments.build();
@@ -667,15 +682,34 @@ public final class Path implements Shape {
         ArrayList<PathElement> commands = new ArrayList<PathElement>(amount);
         for (int i = 0; i < amount; i++) {
             if (i == 0) {
-                commands.add(moveToCommand(pointAt(i * delta)));
+                commands.add(moveToElement(pointAt(i * delta)));
             } else {
-                commands.add(lineToCommand(pointAt(i * delta)));
+                commands.add(lineToElement(pointAt(i * delta)));
             }
         }
         if (isClosed()) {
-            commands.add(closeCommand());
+            commands.add(closeElement());
         }
         return commands;
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hashCode(elements, transform, fill, stroke, strokeWidth);
+    }
+
+    @Override
+    public boolean equals(final Object o) {
+        if (o == this) return true;
+        if (o == null) return false;
+        if (!(o instanceof Path)) return false;
+
+        final Path other = (Path) o;
+        return Objects.equal(elements, other.elements)
+                && Objects.equal(transform, other.transform)
+                && Objects.equal(fill, other.fill)
+                && Objects.equal(stroke, other.stroke)
+                && Objects.equal(strokeWidth, other.strokeWidth);
     }
 
     /**
@@ -693,7 +727,7 @@ public final class Path implements Shape {
      * The path segment is an internal data structure that has all needed information to calculate a pointAt.
      * It divides a path up in curves and lines, each with start and end points.
      */
-    private class PathSegment {
+    private static class PathSegment {
         private final Point startPoint;
         private final PathSegmentType type;
         private final PathElement endCommand;
