@@ -42,6 +42,15 @@ public class Image implements GraphicsElement {
         return fromFile(new File(fileName));
     }
 
+    public static Image fromStream(InputStream stream) {
+        try {
+            BufferedImage image = ImageIO.read(stream);
+            return new Image(image, Point.ZERO, 0, 0, 1, Transform.IDENTITY);
+        } catch (IOException e) {
+            throw new RuntimeException("Could not read image.", e);
+        }
+    }
+
     public static Image fromData(byte[] data) {
         InputStream in = new BufferedInputStream(new ByteArrayInputStream(data));
         try {
