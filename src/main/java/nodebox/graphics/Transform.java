@@ -45,6 +45,7 @@ public class Transform {
     }
 
     public Point map(Point p) {
+        if (this == IDENTITY) return p;
         double[] in = new double[]{p.x, p.y};
         double[] out = new double[2];
         affineTransform.transform(in, 0, out, 0, 1);
@@ -52,12 +53,14 @@ public class Transform {
     }
 
     public Path map(Path p) {
+        if (this == IDENTITY) return p;
         GeneralPath newPath = p.toGeneralPath();
         newPath.transform(affineTransform);
         return Path.fromShape(newPath);
     }
 
     public Group map(Group group) {
+        if (this == IDENTITY) return group;
         LinkedList<GraphicsElement> newElements = new LinkedList<GraphicsElement>();
         for (GraphicsElement e : group.getElements()) {
             newElements.add(e.transform(this));
