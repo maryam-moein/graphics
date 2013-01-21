@@ -33,10 +33,6 @@ public final class Color implements Cloneable {
         this.a = clamp(a);
     }
 
-    public boolean isVisible() {
-        return a > 0;
-    }
-
     public static Color valueOf(String hex) {
         // We can only parse RGBA hex color values.
         Matcher m = HEX_STRING_PATTERN.matcher(hex);
@@ -52,6 +48,10 @@ public final class Color implements Cloneable {
             a255 = 255;
         }
         return new Color(r255 / 255.0, g255 / 255.0, b255 / 255.0, a255 / 255.0);
+    }
+
+    public boolean isVisible() {
+        return a > 0;
     }
 
     public double getR() {
