@@ -58,11 +58,11 @@ public class Transform {
     }
 
     public Group map(Group group) {
-        LinkedList<Shape> newShapes = new LinkedList<Shape>();
-        for (Shape g : group.getShapes()) {
-            newShapes.add((Shape) g.transform(this));
+        LinkedList<GraphicsElement> newElements = new LinkedList<GraphicsElement>();
+        for (GraphicsElement e : group.getElements()) {
+            newElements.add(e.transform(this));
         }
-        return Group.of(newShapes);
+        return Group.of(newElements);
     }
 
 }

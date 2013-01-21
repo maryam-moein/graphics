@@ -7,41 +7,41 @@ import java.awt.*;
 import java.util.LinkedList;
 import java.util.List;
 
-public final class Group implements Shape {
+public final class Group implements GraphicsElement {
 
-    private final PersistentVector shapes;
+    private final PersistentVector elements;
 
-    private Group(PersistentVector shapes) {
-        this.shapes = shapes;
+    private Group(PersistentVector elements) {
+        this.elements = elements;
     }
 
     public static Group of() {
         return new Group(PersistentVector.EMPTY);
     }
 
-    public static Group of(Shape... geometries) {
-        return new Group(PersistentVector.create((Object[])geometries));
+    public static Group of(GraphicsElement... elements) {
+        return new Group(PersistentVector.create((Object[]) elements));
     }
 
-    public static Group of(List<Shape> geometries) {
-        return new Group(PersistentVector.create(geometries));
+    public static Group of(List<GraphicsElement> elements) {
+        return new Group(PersistentVector.create(elements));
     }
 
     public boolean isEmpty() {
-        return shapes.isEmpty();
+        return elements.isEmpty();
     }
 
     public int size() {
-        return shapes.size();
+        return elements.size();
     }
 
     @Override
     public Rect getBounds() {
-        if (shapes.isEmpty()) return Rect.EMPTY;
+        if (elements.isEmpty()) return Rect.EMPTY;
 
         Rect totalBounds = null;
-        for (Object o : shapes) {
-            Rect bounds  =((Shape)o).getBounds();
+        for (Object o : elements) {
+            Rect bounds = ((Shape) o).getBounds();
             if (!bounds.isEmpty()) {
                 if (totalBounds == null) {
                     totalBounds = bounds;
@@ -55,21 +55,22 @@ public final class Group implements Shape {
 
     public Iterable<Point> getPoints() {
         LinkedList<Iterable<Point>> pointIterables = new LinkedList<Iterable<Point>>();
-        for (Object o : shapes) {
-            Shape g = (Shape) o;
-            pointIterables.add(g.getPoints());
-
+        for (Object o : elements) {
+            if (o instanceof Shape) {
+                Shape g = (Shape) o;
+                pointIterables.add(g.getPoints());
+            }
         }
         return Iterables.concat(pointIterables);
     }
 
     @SuppressWarnings("unchecked")
-    public List<Shape> getShapes() {
-        return shapes;
+    public List<Shape> getElements() {
+        return elements;
     }
 
     public Group cons(Shape g) {
-        return new Group(shapes.cons(g));
+        return new Group(elements.cons(g));
     }
 
     public Group transform(Transform t) {
@@ -78,7 +79,7 @@ public final class Group implements Shape {
 
     @Override
     public void draw(Graphics2D g) {
-        for (Object o : shapes) {
+        for (Object o : elements) {
             Drawable d = (Drawable) o;
             d.draw(g);
         }

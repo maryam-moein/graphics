@@ -80,18 +80,16 @@ public class Playground extends JFrame {
             g2.fill(g.getClip());
             g2.setColor(java.awt.Color.BLACK);
 
-            if (result instanceof Shape) {
-                paintGeometry(g2, (Shape) result);
+            if (result instanceof GraphicsElement) {
+                paintElement(g2, (GraphicsElement) result);
             } else {
                 paintObject(g2, result);
             }
         }
 
-        private void paintGeometry(Graphics2D g, Shape shape) {
+        private void paintElement(Graphics2D g, GraphicsElement e) {
             g.setColor(Color.DARK_GRAY);
-            shape.draw(g);
-
-            paintPoints(g, shape.getPoints());
+            e.draw(g);
         }
 
         private void paintPoints(Graphics2D g, Iterable<Point> points) {
