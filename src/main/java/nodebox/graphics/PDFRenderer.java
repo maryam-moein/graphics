@@ -9,6 +9,7 @@ import com.itextpdf.text.pdf.PdfContentByte;
 import com.itextpdf.text.pdf.PdfWriter;
 
 import java.awt.*;
+import java.awt.geom.Rectangle2D;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
@@ -45,9 +46,12 @@ public class PDFRenderer {
         initialized = true;
     }
 
-    public static void render(Grob g, File file) {
+    public static void render(Drawable drawable, Rect bounds, File file) {
+        render(drawable, new Rectangle2D.Double(0, 0, bounds.width, bounds.height), file);
+    }
+
+    public static void render(Drawable drawable, Rectangle2D bounds, File file) {
         initialize();
-        Rect bounds = g.getBounds();
         Rectangle size = new Rectangle((float) bounds.getWidth(), (float) bounds.getHeight());
         Document document = new Document(size);
         FileOutputStream fos;
@@ -64,10 +68,10 @@ public class PDFRenderer {
         }
         document.open();
         PdfContentByte contentByte = writer.getDirectContent();
-        Graphics2D graphics = new PdfGraphics2D(contentByte, (float) bounds.getWidth(), (float) bounds.getHeight(), fontMapper);
-        graphics.translate(-bounds.getX(), -bounds.getY());
-        g.draw(graphics);
-        graphics.dispose();
+        Graphics2D g = new PdfGraphics2D(contentByte, (float) bounds.getWidth(), (float) bounds.getHeight(), fontMapper);
+        g.translate(-bounds.getX(), -bounds.getY());
+        drawable.draw(g);
+        g.dispose();
         document.close();
     }
 

@@ -22,11 +22,7 @@ import java.awt.*;
 import java.io.File;
 import java.util.Map;
 
-public interface Grob extends Cloneable {
-
-    //// Operations on the current context. ////
-
-    public void draw(Graphics2D g);
+public interface Grob extends Cloneable, Drawable {
 
     //// Geometric queries ////
 

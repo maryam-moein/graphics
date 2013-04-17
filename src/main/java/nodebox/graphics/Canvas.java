@@ -236,7 +236,7 @@ public class Canvas extends AbstractTransformable {
 
     public void save(File file) {
         if (file.getName().endsWith(".pdf")) {
-            PDFRenderer.render(this, file);
+            PDFRenderer.render(this, getBounds(), file);
         } else {
             try {
                 ImageIO.write(asImage(), getFileExtension(file), file);
