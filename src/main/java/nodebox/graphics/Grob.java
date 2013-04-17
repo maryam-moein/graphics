@@ -18,10 +18,6 @@
  */
 package nodebox.graphics;
 
-import java.awt.*;
-import java.io.File;
-import java.util.Map;
-
 public interface Grob extends Cloneable, Drawable {
 
     //// Geometric queries ////
