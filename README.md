@@ -16,7 +16,16 @@ Release on the Central Repository
 =================================
 * Install GPG (`brew install gpg`).
 * Download your `gpg.conf`, `pubring.pgp` and `secring.pgp` in the `~/.gnuconf` directory.
-* Add your Sonatype JIRA credentials to your Maven settings file (Located at `~/.m2/settings.xml`):
+* Add your Sonatype JIRA credentials to your Maven settings file (Located at `~/.m2/settings.xml`).
+* Prepare the release using `mvn release:prepare`. This asks for a version, packages everything, signs it with GPG and tags the release in Git.
+* Perform the release using `mvn release:perform`.  This deploys the version into Sonatype staging repository.
+* Login to https://oss.sonatype.org/index.html#stagingRepositories
+* Select the net.nodebox repository and "Close" it.
+* Select the net.nodebox repository and "Release" it.
+
+Example Maven settings file
+===========================
+The file should be located at `~/.m2/settings.xml`:
 
     <settings>
       <servers>
@@ -32,10 +41,4 @@ Release on the Central Repository
         </server>
       </servers>
     </settings>
-
-* Prepare the release using `mvn release:prepare`. This asks for a version, packages everything, signs it with GPG and tags the release in Git.
-* Perform the release using `mvn release:perform`.  This deploys the version into Sonatype staging repository.
-* Login to https://oss.sonatype.org/index.html#stagingRepositories
-* Select the net.nodebox repository and "Close" it.
-* Select the net.nodebox repository and "Release" it.
 
