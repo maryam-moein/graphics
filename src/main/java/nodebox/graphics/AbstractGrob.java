@@ -1,10 +1,7 @@
 package nodebox.graphics;
 
-import javax.imageio.ImageIO;
 import java.awt.*;
 import java.awt.geom.AffineTransform;
-import java.io.File;
-import java.io.IOException;
 
 public abstract class AbstractGrob implements Grob {
 
