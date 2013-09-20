@@ -8,6 +8,7 @@ import java.awt.font.TextLayout;
 import java.awt.geom.AffineTransform;
 import java.awt.geom.Rectangle2D;
 import java.text.AttributedString;
+import java.util.Hashtable;
 import java.util.Iterator;
 
 public class Text extends AbstractGrob {
@@ -127,7 +128,11 @@ public class Text extends AbstractGrob {
     }
 
     public Font getFont() {
-        return new Font(fontName, Font.PLAIN, (int) fontSize);
+        Hashtable<TextAttribute, Object> m = new Hashtable<TextAttribute, Object>();
+        m.put(TextAttribute.FAMILY, fontName);
+        m.put(TextAttribute.SIZE, fontSize);
+        m.put(TextAttribute.KERNING, TextAttribute.KERNING_ON);
+        return Font.getFont(m);
     }
 
     public double getLineHeight() {
